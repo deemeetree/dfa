@@ -3,7 +3,7 @@
     /* 
     Detrended Fluctuation Analysis (DFA)
     Javascript port
-    available on https://github.com/deemeetree
+    available on https://github.com/deemeetree/dfa
 
     based on the approach described on https://noduslabs.com/featured/fractal-variability-feedback-system/
     based on the python script https://github.com/dokato/dfa

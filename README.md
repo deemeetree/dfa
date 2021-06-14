@@ -1,15 +1,17 @@
-**Detrended Fluctuation Analysis (DFA)
+## Detrended Fluctuation Analysis (DFA)
 
-Javascript port
+Javascript port with no external dependencies
 
-available on https://github.com/deemeetree
+Based on the approach described in the [Nodus Labs Fractal Variability Feedback System](https://noduslabs.com/featured/fractal-variability-feedback-system/) article. 
 
+Currently used to analyze the fractal variability of movement in [EightOS](https://8os.io) practice and cognitive variability in [InfraNodus](https://infranodus.com) tool. 
 
-based on the approach described on https://noduslabs.com/featured/fractal-variability-feedback-system/
+If you have more use cases, please, let us know.
 
-based on the python script https://github.com/dokato/dfa
+Based on the python script https://github.com/dokato/dfa and the polinomial script https://github.com/rfink/polyfit.js
 
-*Use
+#### Use
+
 Include the dfa.js file into your browser or a node.js app. Then:
 
 ```javascript
@@ -25,7 +27,7 @@ console.log(alpha_component)
 ```
 
 
-*Concept 
+#### Concept 
 
 DFA is used to measure the behaviour of a time series. 
 
@@ -35,7 +37,7 @@ the presence of correlations in the time series.
 It is based on the relationship between the length of an observation and cumulated variability.
 
 
-*Algorithm:
+#### Algorithm:
 
 1) represent a time series as a one-dimensional vector
 
@@ -57,3 +59,11 @@ It is based on the relationship between the length of an observation and cumulat
 i.e. as observations increase in length, the amplitude of average fluctuations increases as well 
 that is, there is an exponential growth of fluctuations when there's an exponential growth of scale (2^n)
 on the smaller scales the deviations are smaller. on the bigger scales they are much bigger.
+
+
+#### GPL License
+
+This open source, free software is available under the GNU Affero General Public License version 3 (AGPLv3) license.
+You can make modifications to this code and binaries based on it, but only on the condition that you provide access to those modifications under the same license (including remotely  through a computer network).
+It is provided as is, with no guarantees and no liabilities.
+You can re-use it as long as you keep this notice inside the code.
