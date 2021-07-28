@@ -40,10 +40,8 @@
     let dfa = new DFA(time_series)
     let alpha_component = dfa.compute()
     console.log(alpha_component)
-
+    
     */
-
-  
 
     let DFA = function (x) {
 
@@ -77,7 +75,8 @@
     DFA.prototype.generateScaleRange = function (array, startAt = 4, step = 0.5) {
         // the size of the scale should be not longer than the array
         let startPow = Math.sqrt(startAt)
-        let size = ((Math.log2(array.length) - startPow) / step) + 1
+        let size = Math.floor(((Math.log2(array.length) - startPow) / step) + 1)
+        console.log('DFA array size', size)
         return [...Array(size).keys()].map(i => Math.floor(Math.pow(2,(i*step + startPow)))) // Math.round could be used, but .floor makes it possible to have more windows
     }
 
@@ -207,11 +206,24 @@
         We plot them against each other on the log base 2 scales and find the coefficient of the best-fit.
         */
 
-        let alpha_poly = new Polyfit(this.log2Vector(scales), this.log2Vector(fluctuations))
-        
-        let alpha = alpha_poly.computeCoefficients(1)[1]
+        let scales_log = this.log2Vector(scales)
+        let flucts_log = this.log2Vector(fluctuations) 
+        let alpha_poly = new Polyfit(scales_log, flucts_log)
+    
+        let coefficients = alpha_poly.computeCoefficients(1)
 
-        return alpha;
+        let alpha = coefficients[1]
+
+        let result = {
+            scales: scales,
+            fluctuations: fluctuations,
+            scales_log: scales_log,
+            fluctuations_log: flucts_log,
+            coefficients: coefficients,
+            alpha: alpha
+        }
+
+        return result;
 
 
     }
@@ -507,3 +519,4 @@
         }
         return eqParts.join(' + ');
     };
+

@@ -24,6 +24,16 @@ let alpha_component = dfa.compute()
 
 console.log(alpha_component)
 
+alpha_component = 
+  {
+    scales: scales,
+    fluctuations: fluctuations,
+    scales_log: scales_log,
+    fluctuations_log: flucts_log,
+    coefficients: coefficients,
+    alpha: alpha
+  }
+
 ```
 
 
