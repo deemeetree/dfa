@@ -1,0 +1,25 @@
+{
+  "name": "dfa-variability",
+  "description": "Detrended Fluctuation Analysis for Javascript measuring time series variability.",
+  "main": "./dfa",
+  "author": "Dmitry Paranyushkin <contact@noduslabs.com> (http://noduslabs.com)",
+  "version": "0.5.0",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/deemeetree/dfa.git"
+  },
+  "licenses": [
+    {
+      "type": "MIT",
+      "url": "http://github.com/deemeetree/dfa/LICENSE"
+    }
+  ],
+  "bugs": {
+    "url": "https://github.com/deemeetree/dfa/issues"
+  },
+  "homepage": "https://github.com/deemeetree/dfa#readme",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "MIT"
+}

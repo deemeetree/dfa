@@ -40,8 +40,10 @@
     let dfa = new DFA(time_series)
     let alpha_component = dfa.compute()
     console.log(alpha_component)
-    
+
     */
+
+    var DFA = (function () {
 
     let DFA = function (x) {
 
@@ -518,5 +520,10 @@
             eqParts.push(terms[i] + 'x^' + i);
         }
         return eqParts.join(' + ');
-    };
+    }
 
+    return DFA;
+    
+    })();
+
+    module.exports = DFA;

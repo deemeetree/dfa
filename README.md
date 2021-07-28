@@ -2,7 +2,7 @@
 
 Javascript port with no external dependencies
 
-Based on the approach described in the [Nodus Labs Fractal Variability Feedback System](https://noduslabs.com/featured/fractal-variability-feedback-system/) article. 
+Inspired by the approach described in the [Nodus Labs Fractal Variability Feedback System](https://noduslabs.com/featured/fractal-variability-feedback-system/) article. 
 
 Currently used to analyze the fractal variability of movement in [EightOS](https://8os.io) practice and cognitive variability in [InfraNodus](https://infranodus.com) tool. 
 
@@ -12,10 +12,23 @@ Based on the python script https://github.com/dokato/dfa and the polinomial scri
 
 ### Use
 
-Include the dfa.js file into your browser or a node.js app. Then:
+#### When using NPM
+
+```
+npm install dfa-variability
+```
+
+#### In the browser
+
+Include the dfa.js file into your browser or a node.js app. Then use the Javascript below:
 
 ```javascript
 
+// when running on the backend
+let DFA = require('dfa-variability')
+
+
+// When running on the frontend
 let time_series = [8, 10, 6, 9, 7, 5, 5, 11, 11, 8, 6, 7, 9, 10, 7, 9]
 
 let dfa = new DFA(time_series)
@@ -24,6 +37,11 @@ let alpha_component = dfa.compute()
 
 console.log(alpha_component)
 
+```
+
+The object structure of the response is:
+
+```
 alpha_component = 
   {
     scales: scales,
