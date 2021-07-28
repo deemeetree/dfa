@@ -91,7 +91,7 @@ on the smaller scales the deviations are smaller. on the bigger scales they are 
 
 ### Author
 
-Created by [Dmitry Paranyushkin](https://deemeetree.com) in 2020
+Created by [Dmitry Paranyushkin](https://deemeetree.com) in 2020-2021
 
 
 ### GPL License
