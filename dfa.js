@@ -92,7 +92,7 @@ var DFA = (function () {
 		// the size of the scale should be not longer than the array
 		let startPow = Math.sqrt(startAt);
 		let size = Math.floor((Math.log2(array.length) - startPow) / step + 1);
-		console.log("DFA array size", size);
+
 		return [...Array(size).keys()].map((i) =>
 			Math.floor(Math.pow(2, i * step + startPow))
 		); // Math.round could be used, but .floor makes it possible to have more windows
@@ -143,6 +143,18 @@ var DFA = (function () {
 
 		// let's calculate the average for that vector and take a square root of it
 		return Math.sqrt(this.meanOfVector(variance_vector));
+	};
+
+	DFA.prototype.alphaScore = function (alpha) {
+		if (alpha <= 0.6) {
+			return "uniform";
+		} else if (alpha > 0.6 && alpha <= 0.97) {
+			return "regular";
+		} else if (alpha > 0.97 && alpha <= 1.03) {
+			return "fractal";
+		} else if (alpha > 1.03) {
+			return "complex";
+		}
 	};
 
 	DFA.prototype.compute = function (min_window = 4, step = 0.5) {
@@ -235,14 +247,20 @@ var DFA = (function () {
 
 		let alpha = coefficients[1];
 
+		let arraySize = scales.length;
+
+		let alphaScore = this.alphaScore(alpha);
+
 		let result = {
 			averageVariance: averageVariance,
 			scales: scales,
+			segments: arraySize,
 			fluctuations: fluctuations,
 			scales_log: scales_log,
 			fluctuations_log: flucts_log,
 			coefficients: coefficients,
 			alpha: alpha,
+			alphaScore: alphaScore,
 		};
 
 		return result;

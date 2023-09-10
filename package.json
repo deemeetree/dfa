@@ -3,13 +3,13 @@
 	"description": "Detrended Fluctuation Analysis for Javascript measuring time series variability.",
 	"main": "./dfa",
 	"author": "Dmitry Paranyushkin <contact@noduslabs.com> (http://noduslabs.com)",
-	"version": "0.6.0",
+	"version": "0.7.0",
 	"repository": {
 		"type": "git",
 		"url": "git+ssh://git@github.com/deemeetree/dfa.git"
 	},
 	"publishConfig": {
-		"registry": "https://www.npmjs.com/package/dfa-variability"
+		"registry": "https://registry.npmjs.org/"
 	},
 	"licenses": [
 		{
