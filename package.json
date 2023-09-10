@@ -8,6 +8,9 @@
 		"type": "git",
 		"url": "git+ssh://git@github.com/deemeetree/dfa.git"
 	},
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com"
+	},
 	"licenses": [
 		{
 			"type": "AGPLv3",
