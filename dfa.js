@@ -79,6 +79,71 @@ var DFA = (function () {
 		return totalDeviation / x.length;
 	};
 
+	DFA.prototype.deviationsFromMean = function (x, mean) {
+		const deviationsVector = x.map((value) => value - mean);
+		return deviationsVector;
+	};
+
+	DFA.prototype.squareVector = function (x) {
+		return x.map((value) => Math.pow(value, 2));
+	};
+
+	DFA.prototype.SDNN = function (x) {
+		const deviationsFromMean = this.deviationsFromMean(x, this.meanOfVector(x));
+		const squaredVector = this.squareVector(deviationsFromMean);
+		const meanSquaredVector = this.meanOfVectorNoBias(squaredVector);
+		return Math.pow(meanSquaredVector, 0.5);
+	};
+
+	DFA.prototype.averageDifferences = function (x) {
+		let sumOfDifferences = 0;
+
+		// Loop through the intervals and calculate the sum of differences
+		for (let i = 0; i < x.length - 1; i++) {
+			sumOfDifferences += Math.abs(x[i + 1] - x[i]);
+		}
+
+		// Return the average difference
+		return sumOfDifferences / (x.length - 1);
+	};
+
+	DFA.prototype.RMSSD = function (x) {
+		let sumOfSquaredDifferences = 0;
+
+		// Loop through the intervals and calculate the sum of squared differences
+		for (let i = 0; i < x.length - 1; i++) {
+			const difference = Math.abs(x[i + 1] - x[i]);
+			sumOfSquaredDifferences += difference * difference;
+		}
+
+		// Calculate RMSSD
+		const rmssd = Math.sqrt(sumOfSquaredDifferences / (x.length - 1));
+
+		return rmssd;
+	};
+
+	DFA.prototype.naturalLog = function (value) {
+		return Math.log(value);
+	};
+
+	DFA.prototype.PNN50 = function (rrIntervals) {
+		let differences = [];
+		let countDifferencesOver50ms = 0;
+
+		// Calculate differences between successive RR intervals
+		for (let i = 1; i < rrIntervals.length; i++) {
+			differences.push(Math.abs(rrIntervals[i] - rrIntervals[i - 1])); // absolute difference
+			if (differences[i - 1] > 50) {
+				countDifferencesOver50ms++;
+			}
+		}
+
+		// Calculate pNN50
+		let pNN50 = (countDifferencesOver50ms / (rrIntervals.length - 1)) * 100;
+
+		return pNN50;
+	};
+
 	DFA.prototype.generateRange = function (array, startAt = 0, step = 1) {
 		let size = array.length;
 		return [...Array(size).keys()].map((i) => i * step + startAt);
@@ -117,6 +182,12 @@ var DFA = (function () {
 		return mean(y);
 	};
 
+	DFA.prototype.meanOfVectorNoBias = function (x) {
+		!x ? (y = this.x) : (y = x);
+		let mean = (y) => y.reduce((p, c) => p + c, 0) / (y.length - 1);
+		return mean(y);
+	};
+
 	DFA.prototype.log2Vector = function (x) {
 		if (!(x instanceof Array)) {
 			throw new Error("log2Vector input must be an array");
@@ -145,15 +216,22 @@ var DFA = (function () {
 		return Math.sqrt(this.meanOfVector(variance_vector));
 	};
 
-	DFA.prototype.alphaScore = function (alpha) {
-		if (alpha <= 0.6) {
-			return "uniform";
-		} else if (alpha > 0.6 && alpha <= 0.97) {
+	DFA.prototype.alphaScore = function (alpha, level = "moderate") {
+		let thresholds = [0.55, 0.95, 1.05];
+		if (level == "relaxed") {
+			thresholds = [0.65, 0.9, 1.1];
+		} else if (level == "strict") {
+			thresholds = [0.5, 0.98, 1.02];
+		}
+
+		if (alpha <= thresholds[0]) {
+			return "recovering";
+		} else if (alpha > thresholds[0] && alpha < thresholds[1]) {
 			return "regular";
-		} else if (alpha > 0.97 && alpha <= 1.03) {
-			return "fractal";
-		} else if (alpha > 1.03) {
-			return "complex";
+		} else if (alpha >= thresholds[1] && alpha <= thresholds[2]) {
+			return "resilient";
+		} else if (alpha > thresholds[2]) {
+			return "tension";
 		}
 	};
 
@@ -168,6 +246,18 @@ var DFA = (function () {
 			this.x,
 			this.meanOfVector(this.x)
 		);
+
+		let meanValue = this.meanOfVector(this.x);
+
+		let SDNN = this.SDNN(this.x);
+
+		let RMSSD = this.RMSSD(this.x);
+
+		let lnRMSSD = this.naturalLog(RMSSD);
+
+		let PNN50 = this.PNN50(this.x);
+
+		let averageDifferences = this.averageDifferences(this.x);
 
 		/* 
         Create observation windows of length, e.g scales = [4,5,8,11,16]
@@ -253,6 +343,12 @@ var DFA = (function () {
 
 		let result = {
 			averageVariance: averageVariance,
+			meanValue: meanValue,
+			SDNN: SDNN,
+			RMSSD: RMSSD,
+			lnRMSSD: lnRMSSD,
+			PNN50: PNN50,
+			averageDifferences: averageDifferences,
 			scales: scales,
 			segments: arraySize,
 			fluctuations: fluctuations,

@@ -31,6 +31,8 @@ let time_series = [8, 10, 6, 9, 7, 5, 5, 11, 11, 8, 6, 7, 9, 10, 7, 9];
 
 let dfa = new DFA(time_series);
 
+// calculate alpha component: dfa.compute(min_window = 4, step = 0.5)
+
 let alpha_component = dfa.compute();
 
 console.log(alpha_component);
@@ -41,15 +43,21 @@ The object structure of the response is:
 ```
 alpha_component =
   {
-    averageVariance: averageVariance, // average variance
-    scales: scales, // scales used
-    segments: arraySize, // segments time series is split into
-    fluctuations: fluctuations, // fluctiations in every segment
-    scales_log: scales_log, // log of scales
-    fluctuations_log: flucts_log, // log of fluctuations
-    coefficients: coefficients, // coefficients for the polyfit line
-    alpha: alpha, // alpha coef
-    alphaScore: alphaScore, // alpha score
+	    averageVariance: averageVariance,
+			meanValue: meanValue,
+			SDNN: SDNN,
+			RMSSD: RMSSD,
+			lnRMSSD: lnRMSSD,
+			PNN50: PNN50,
+			averageDifferences: averageDifferences,
+			scales: scales,
+			segments: arraySize,
+			fluctuations: fluctuations,
+			scales_log: scales_log,
+			fluctuations_log: flucts_log,
+			coefficients: coefficients,
+			alpha: alpha,
+			alphaScore: alphaScore,
   }
 
 ```
