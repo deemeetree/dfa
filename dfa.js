@@ -157,9 +157,6 @@ var DFA = (function () {
 		// the size of the scale should be not longer than the array
 		let startPow = Math.sqrt(startAt);
 		let size = Math.floor((Math.log2(array.length) - startPow) / step + 1);
-		console.log("startAt", startAt);
-		console.log("array", array);
-		console.log("SIZE", size);
 
 		return [...Array(size).keys()].map((i) =>
 			Math.floor(Math.pow(2, i * step + startPow))
