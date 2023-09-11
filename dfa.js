@@ -235,7 +235,11 @@ var DFA = (function () {
 		}
 	};
 
-	DFA.prototype.compute = function (min_window = 4, step = 0.5) {
+	DFA.prototype.compute = function (
+		min_window = 4,
+		step = 0.5,
+		level = "moderate"
+	) {
 		/* 
         Transform the series into the cumulative sum of variances (deviations from the mean).
         We need this to only look at the fluctuations and not the absolute values.
@@ -342,7 +346,7 @@ var DFA = (function () {
 
 		let arraySize = scales.length;
 
-		let alphaScore = this.alphaScore(alpha);
+		let alphaScore = this.alphaScore(alpha, level);
 
 		let result = {
 			averageVariance: averageVariance,
