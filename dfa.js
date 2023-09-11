@@ -259,6 +259,8 @@ var DFA = (function () {
 
 		let averageDifferences = this.averageDifferences(this.x);
 
+		let lengthOfData = this.x.length;
+
 		/* 
         Create observation windows of length, e.g scales = [4,5,8,11,16]
         Scale of the window size from min_window to max series length.
@@ -286,6 +288,7 @@ var DFA = (function () {
 			);
 
 			let num_windows = split_scales[window_size].length;
+
 			/* 
             For each window let's build a polynomial in order to detrend it.
             Then we will calculate RMS (root mean square) for each window (standard deviation)
@@ -344,6 +347,7 @@ var DFA = (function () {
 		let result = {
 			averageVariance: averageVariance,
 			meanValue: meanValue,
+			lengthOfData: lengthOfData,
 			SDNN: SDNN,
 			RMSSD: RMSSD,
 			lnRMSSD: lnRMSSD,
