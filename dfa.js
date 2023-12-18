@@ -177,14 +177,24 @@ var DFA = (function () {
 	};
 
 	DFA.prototype.meanOfVector = function (x) {
-		!x ? (y = this.x) : (y = x);
-		let mean = (y) => y.reduce((p, c) => p + c, 0) / y.length;
+		// Declare y within the function scope
+		let y = x || this.x; // If x is not provided, use this.x
+
+		// Define the mean function
+		let mean = (arr) => arr.reduce((p, c) => p + c, 0) / arr.length;
+
+		// Return the computed mean
 		return mean(y);
 	};
 
 	DFA.prototype.meanOfVectorNoBias = function (x) {
-		!x ? (y = this.x) : (y = x);
-		let mean = (y) => y.reduce((p, c) => p + c, 0) / (y.length - 1);
+		// Properly declare y within the function scope
+		let y = x || this.x;
+
+		// Define the mean function
+		let mean = (arr) => arr.reduce((p, c) => p + c, 0) / (arr.length - 1);
+
+		// Return the computed mean (or adjusted value)
 		return mean(y);
 	};
 
