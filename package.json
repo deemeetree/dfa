@@ -24,5 +24,8 @@
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
-	"license": "AGPLv3"
+	"license": "AGPLv3",
+	"dependencies": {
+		"generate-fractal-signal": "^0.2.4"
+	}
 }
