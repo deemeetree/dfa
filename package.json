@@ -3,7 +3,7 @@
 	"description": "Detrended Fluctuation Analysis for Javascript measuring time series variability.",
 	"main": "./dfa",
 	"author": "Dmitry Paranyushkin <contact@noduslabs.com> (http://noduslabs.com)",
-	"version": "0.9.5",
+	"version": "0.9.8",
 	"repository": {
 		"type": "git",
 		"url": "git+ssh://git@github.com/deemeetree/dfa.git"
@@ -25,7 +25,5 @@
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
 	"license": "AGPLv3",
-	"dependencies": {
-		"generate-fractal-signal": "^0.2.4"
-	}
+	"dependencies": {}
 }

@@ -41,7 +41,17 @@
 
     */
 
-var DFA = (function () {
+let DFA = (function () {
+	function log2(x) {
+		return Math.log(x) / Math.log(2);
+	}
+	function range(size) {
+		let result = [];
+		for (let i = 0; i < size; i++) {
+			result.push(i);
+		}
+		return result;
+	}
 	let DFA = function (x) {
 		if (!(this instanceof DFA)) {
 			return new DFA(x);
@@ -146,26 +156,24 @@ var DFA = (function () {
 
 	DFA.prototype.generateRange = function (array, startAt = 0, step = 1) {
 		let size = array.length;
-		return [...Array(size).keys()].map((i) => i * step + startAt);
+		return range(size).map((i) => i * step + startAt);
 	};
 
 	DFA.prototype.generateZeroArray = function (size) {
-		return [...Array(size).keys()].map((i) => 0);
+		return range(size).map((i) => 0);
 	};
 
 	DFA.prototype.generateScaleRange = function (array, startAt = 4, step = 0.5) {
 		// the size of the scale should be not longer than the array
 		let startPow = Math.sqrt(startAt);
-		let size = Math.floor((Math.log2(array.length) - startPow) / step + 1);
+		let size = Math.floor((log2(array.length) - startPow) / step + 1);
 
-		return [...Array(size).keys()].map((i) =>
-			Math.floor(Math.pow(2, i * step + startPow))
-		); // Math.round could be used, but .floor makes it possible to have more windows
+		return range(size).map((i) => Math.floor(Math.pow(2, i * step + startPow))); // Math.round could be used, but .floor makes it possible to have more windows
 	};
 
 	DFA.prototype.splitArrayIntoChunks = function (arr, size, strict = false) {
 		let chunkedArray = [];
-		for (var i = 0; i < arr.length; i += size) {
+		for (let i = 0; i < arr.length; i += size) {
 			chunkedArray.push(arr.slice(i, i + size));
 		}
 		if (strict) {
@@ -204,7 +212,7 @@ var DFA = (function () {
 		}
 		let y = [];
 		for (let i in x) {
-			y[i] = Math.log2(x[i]);
+			y[i] = log2(x[i]);
 		}
 		return y;
 	};
@@ -251,10 +259,11 @@ var DFA = (function () {
 		level = "moderate"
 	) {
 		/* 
-        Transform the series into the cumulative sum of variances (deviations from the mean).
-        We need this to only look at the fluctuations and not the absolute values.
-        */
-		let cumsum = this.cumsumVariance(this.x, this.meanOfVector());
+					Transform the series into the cumulative sum of variances (deviations from the mean).
+					We need this to only look at the fluctuations and not the absolute values.
+					*/
+
+		let cumsum = this.cumsumVariance(this.x, this.meanOfVector(this.x));
 
 		let averageVariance = this.averageVariance(
 			this.x,
@@ -276,17 +285,17 @@ var DFA = (function () {
 		let lengthOfData = this.x.length;
 
 		/* 
-        Create observation windows of length, e.g scales = [4,5,8,11,16]
-        Scale of the window size from min_window to max series length.
-        Each increment is made at the rate of 2^step.
-        This is done to have exponential increase of the scale windows.
-        */
+					Create observation windows of length, e.g scales = [4,5,8,11,16]
+					Scale of the window size from min_window to max series length.
+					Each increment is made at the rate of 2^step.
+					This is done to have exponential increase of the scale windows.
+					*/
 		let scales = this.generateScaleRange(cumsum, min_window, step);
 
 		/* 
-        Split the cumulative sum into the window chunks of scales.
-        E.g. for a series of 16 values, the first window of size 4 will split it into 4 windows of 4 values in each.
-        */
+					Split the cumulative sum into the window chunks of scales.
+					E.g. for a series of 16 values, the first window of size 4 will split it into 4 windows of 4 values in each.
+					*/
 		let split_scales = {};
 
 		let fluctuations = [];
@@ -304,9 +313,9 @@ var DFA = (function () {
 			let num_windows = split_scales[window_size].length;
 
 			/* 
-            For each window let's build a polynomial in order to detrend it.
-            Then we will calculate RMS (root mean square) for each window (standard deviation)
-            */
+						For each window let's build a polynomial in order to detrend it.
+						Then we will calculate RMS (root mean square) for each window (standard deviation)
+						*/
 
 			let rms = this.generateZeroArray(num_windows);
 
@@ -333,6 +342,8 @@ var DFA = (function () {
 				// let's now calculate the root mean square off the differences
 				// between the values in this window chunk (xcut) and the fit (xfit)
 				rms[chunk] = Math.pow(this.RMS(xcut, xfit), 2);
+
+				poly = null;
 			}
 
 			// let's get the average of the variance for each window in this scale
@@ -340,11 +351,11 @@ var DFA = (function () {
 			fluctuations[s] = Math.sqrt(this.meanOfVector(rms));
 		}
 		/* 
-        Calculate best-fit for the Scales to Fluctuations (RMS)
-        We now have the vector with scales that shows the number of values in each window.
-        We also have the fluctuations vector, which shows the square root of the mean RMS.
-        We plot them against each other on the log base 2 scales and find the coefficient of the best-fit.
-        */
+					Calculate best-fit for the Scales to Fluctuations (RMS)
+					We now have the vector with scales that shows the number of values in each window.
+					We also have the fluctuations vector, which shows the square root of the mean RMS.
+					We plot them against each other on the log base 2 scales and find the coefficient of the best-fit.
+					*/
 
 		let scales_log = this.log2Vector(scales);
 		let flucts_log = this.log2Vector(fluctuations);
@@ -381,295 +392,163 @@ var DFA = (function () {
 	};
 
 	/* 
-    POLINOMIAL CALCULATION
-    taken from https://github.com/rfink/polyfit.js
+				POLINOMIAL CALCULATION
+				taken from https://github.com/rfink/polyfit.js
     
-    ~ Concept:
+				~ Concept:
     
-    What is a function that best describes a relationship? 
-    n is the degree, so if n = 1, what is the straight line that describes the relationship
-
-    ~ Use: 
+				What is a function that best describes a relationship? 
+				n is the degree, so if n = 1, what is the straight line that describes the relationship
+			
+				~ Use: 
     
-    let poly = new Polyfit([0,1,2,3],[0,0,-2,-3]) 
-    poly.computeCoefficients(1) // 1 is the degree
-    // result: [0.4, -1.1] - python DFA algorithm yields reverse order
-    let func = poly.getPolynomial(1)
-    func(0)
-    func(1)
-    etc. for the fit
+				let poly = new Polyfit([0,1,2,3],[0,0,-2,-3]) 
+				poly.computeCoefficients(1) // 1 is the degree
+				// result: [0.4, -1.1] - python DFA algorithm yields reverse order
+				let func = poly.getPolynomial(1)
+				func(0)
+				func(1)
+				etc. for the fit
+			
+				*/
 
-    */
+	class Polyfit {
+		constructor(x, y) {
+			// Validate input arrays
+			if (!Array.isArray(x) || !Array.isArray(y)) {
+				throw new Error("x and y must be arrays");
+			}
 
-	let Polyfit = function (x, y) {
-		// Make sure we return an instance
-		if (!(this instanceof Polyfit)) {
-			return new Polyfit(x, y);
+			if (x.length !== y.length) {
+				throw new Error("x and y must have the same length");
+			}
+
+			this.x = x;
+			this.y = y;
+
+			this.FloatXArray =
+				x instanceof Float32Array
+					? Float32Array
+					: x instanceof Float64Array
+					? Float64Array
+					: null;
 		}
-		// Check that x any y are both arrays of the same type
-		if (
-			!(
-				(x instanceof Array && y instanceof Array) ||
-				(x instanceof Float32Array && y instanceof Float32Array) ||
-				(x instanceof Float64Array && y instanceof Float64Array)
-			)
-		) {
-			throw new Error("x and y must be arrays");
+
+		static gaussJordanDivide(matrix, row, col, numCols) {
+			const divisor = matrix[row][col];
+			for (var i = col + 1; i < numCols; i++) {
+				matrix[row][i] /= divisor;
+			}
+			matrix[row][col] = 1;
 		}
-		if (x instanceof Float32Array) {
-			this.FloatXArray = Float32Array;
-		} else if (x instanceof Float64Array) {
-			this.FloatXArray = Float64Array;
-		}
-		// Make sure we have equal lengths
-		if (x.length !== y.length) {
-			throw new Error("x and y must have the same length");
-		}
-		this.x = x;
-		this.y = y;
-	};
-	/**
-	 * Perform gauss-jordan division
-	 *
-	 * @param {number[][]|Float32Array[]|Float64Array[]} matrix - gets modified
-	 * @param {number} row
-	 * @param {number} col
-	 * @param {number} numCols
-	 * @returns void
-	 */
-	Polyfit.gaussJordanDivide = function (matrix, row, col, numCols) {
-		for (var i = col + 1; i < numCols; i++) {
-			matrix[row][i] /= matrix[row][col];
-		}
-		matrix[row][col] = 1;
-	};
-	/**
-	 * Perform gauss-jordan elimination
-	 *
-	 * @param {number[][]|Float64Array[]} matrix - gets modified
-	 * @param {number} row
-	 * @param {number} col
-	 * @param {number} numRows
-	 * @param {number} numCols
-	 * @returns void
-	 */
-	Polyfit.gaussJordanEliminate = function (matrix, row, col, numRows, numCols) {
-		for (var i = 0; i < numRows; i++) {
-			if (i !== row && matrix[i][col] !== 0) {
-				for (var j = col + 1; j < numCols; j++) {
-					matrix[i][j] -= matrix[i][col] * matrix[row][j];
+
+		static gaussJordanEliminate(matrix, row, col, numRows, numCols) {
+			for (var i = 0; i < numRows; i++) {
+				if (i !== row) {
+					var factor = matrix[i][col];
+					for (var j = col + 1; j < numCols; j++) {
+						matrix[i][j] -= factor * matrix[row][j];
+					}
+					matrix[i][col] = 0;
 				}
-				matrix[i][col] = 0;
 			}
 		}
-	};
-	/**
-	 * Perform gauss-jordan echelon method
-	 *
-	 * @param {number[][]|Float32Array[]|Float64Array[]} matrix - gets modified
-	 * @returns {number[][]|Float32Array[]|Float64Array[]} matrix
-	 */
-	Polyfit.gaussJordanEchelonize = function (matrix) {
-		var rows = matrix.length;
-		var cols = matrix[0].length;
-		var i = 0;
-		var j = 0;
-		var k;
-		var swap;
-		while (i < rows && j < cols) {
-			k = i;
-			// Look for non-zero entries in col j at or below row i
-			while (k < rows && matrix[k][j] === 0) {
-				k++;
-			}
-			// If an entry is found at row k
-			if (k < rows) {
-				// If k is not i, then swap row i with row k
-				if (k !== i) {
-					swap = matrix[i];
-					matrix[i] = matrix[k];
-					matrix[k] = swap;
+
+		static gaussJordanEchelonize(matrix) {
+			const rows = matrix.length;
+			const cols = matrix[0].length;
+
+			for (var col = 0, row = 0; col < cols && row < rows; col++) {
+				var maxRow = row;
+				for (var i = row + 1; i < rows; i++) {
+					if (Math.abs(matrix[i][col]) > Math.abs(matrix[maxRow][col])) {
+						maxRow = i;
+					}
 				}
-				// If matrix[i][j] is != 1, divide row i by matrix[i][j]
-				if (matrix[i][j] !== 1) {
-					Polyfit.gaussJordanDivide(matrix, i, j, cols);
-				}
-				// Eliminate all other non-zero entries
-				Polyfit.gaussJordanEliminate(matrix, i, j, rows, cols);
-				i++;
+
+				if (matrix[maxRow][col] === 0) continue;
+
+				// Swap rows
+				var temp = matrix[row];
+				matrix[row] = matrix[maxRow];
+				matrix[maxRow] = temp;
+
+				Polyfit.gaussJordanDivide(matrix, row, col, cols);
+				Polyfit.gaussJordanEliminate(matrix, row, col, rows, cols);
+				row++;
 			}
-			j++;
 		}
-		return matrix;
-	};
-	/**
-	 * Perform regression
-	 *
-	 * @param {number} x
-	 * @param {number[]|Float32Array[]|Float64Array[]} terms
-	 * @returns {number}
-	 */
-	Polyfit.regress = function (x, terms) {
-		var a = 0;
-		var exp = 0;
-		for (var i = 0, len = terms.length; i < len; i++) {
-			a += terms[i] * Math.pow(x, exp++);
-		}
-		return a;
-	};
-	/**
-	 * Compute correlation coefficient
-	 *
-	 * @param {number[]|Float32Array[]|Float64Array[]} terms
-	 * @returns {number}
-	 */
-	Polyfit.prototype.correlationCoefficient = function (terms) {
-		var r = 0;
-		var n = this.x.length;
-		var sx = 0;
-		var sx2 = 0;
-		var sy = 0;
-		var sy2 = 0;
-		var sxy = 0;
-		var x;
-		var y;
-		for (var i = 0; i < n; i++) {
-			x = Polyfit.regress(this.x[i], terms);
-			y = this.y[i];
-			sx += x;
-			sy += y;
-			sxy += x * y;
-			sx2 += x * x;
-			sy2 += y * y;
-		}
-		var div = Math.sqrt((sx2 - (sx * sx) / n) * (sy2 - (sy * sy) / n));
-		if (div !== 0) {
-			r = Math.pow((sxy - (sx * sy) / n) / div, 2);
-		}
-		return r;
-	};
-	/**
-	 * Run standard error function
-	 *
-	 * @param {number[]|Float32Array[]|Float64Array[]} terms
-	 * @returns number
-	 */
-	Polyfit.prototype.standardError = function (terms) {
-		var r = 0;
-		var n = this.x.length;
-		if (n > 2) {
-			var a = 0;
+
+		computeCoefficients(p) {
+			const n = this.x.length;
+			var m = [];
+			for (var i = 0; i < p + 1; i++) {
+				var row = [];
+				for (var j = 0; j < p + 2; j++) {
+					row.push(0);
+				}
+				m.push(row);
+			}
+
+			var mpc = [];
+			for (var idx = 0; idx < 2 * (p + 1) - 1; idx++) {
+				var sum = 0;
+				for (var i = 0; i < n; i++) {
+					sum += Math.pow(this.x[i], idx);
+				}
+				mpc.push(sum);
+			}
+
+			for (var r = 0; r < p + 1; r++) {
+				for (var c = 0; c < p + 1; c++) {
+					m[r][c] = mpc[r + c];
+				}
+			}
+
 			for (var i = 0; i < n; i++) {
-				a += Math.pow(Polyfit.regress(this.x[i], terms) - this.y[i], 2);
+				var temp = 1;
+				for (var j = 0; j < p + 1; j++) {
+					m[j][p + 1] += temp * this.y[i];
+					temp *= this.x[i];
+				}
 			}
-			r = Math.sqrt(a / (n - 2));
-		}
-		return r;
-	};
-	/**
-	 * Compute coefficients for given data matrix
-	 *
-	 * @param {number} p
-	 * @returns {number[]|Float32Array|Float64Array}
-	 */
-	Polyfit.prototype.computeCoefficients = function (p) {
-		var n = this.x.length;
-		var r;
-		var c;
-		var rs = 2 * ++p - 1;
-		var i;
-		var m = [];
-		// Initialize array with 0 values
-		if (this.FloatXArray) {
-			// fast FloatXArray-Matrix init
-			var bytesPerRow = (p + 1) * this.FloatXArray.BYTES_PER_ELEMENT;
-			var buffer = new ArrayBuffer(p * bytesPerRow);
-			for (i = 0; i < p; i++) {
-				m[i] = new this.FloatXArray(buffer, i * bytesPerRow, p + 1);
+
+			Polyfit.gaussJordanEchelonize(m);
+			var result = [];
+			for (var i = 0; i < m.length; i++) {
+				result.push(m[i][p + 1]);
 			}
-		} else {
-			var zeroRow = [];
-			for (i = 0; i <= p; i++) {
-				zeroRow[i] = 0;
+			return result;
+		}
+
+		getPolynomial(degree) {
+			if (isNaN(degree) || degree < 0) {
+				throw new Error("Degree must be a positive integer");
 			}
-			m[0] = zeroRow;
-			for (i = 1; i < p; i++) {
-				// copy zeroRow
-				m[i] = zeroRow.slice();
+
+			var terms = this.computeCoefficients(degree);
+			return function (x) {
+				var result = 0;
+				for (var idx = 0; idx < terms.length; idx++) {
+					result += terms[idx] * Math.pow(x, idx);
+				}
+				return result;
+			};
+		}
+
+		toExpression(degree) {
+			if (isNaN(degree) || degree < 0) {
+				throw new Error("Degree must be a positive integer");
 			}
-		}
-		var mpc = [n];
-		for (i = 1; i < rs; i++) {
-			mpc[i] = 0;
-		}
-		for (i = 0; i < n; i++) {
-			var x = this.x[i];
-			var y = this.y[i];
-			// Process precalculation array
-			for (r = 1; r < rs; r++) {
-				mpc[r] += Math.pow(x, r);
+
+			var terms = this.computeCoefficients(degree);
+			var expressions = [];
+			for (var idx = 0; idx < terms.length; idx++) {
+				expressions.push(terms[idx].toPrecision() + "x^" + idx);
 			}
-			// Process RH column cells
-			m[0][p] += y;
-			for (r = 1; r < p; r++) {
-				m[r][p] += Math.pow(x, r) * y;
-			}
+			return expressions.join(" + ");
 		}
-		// Populate square matrix section
-		for (r = 0; r < p; r++) {
-			for (c = 0; c < p; c++) {
-				m[r][c] = mpc[r + c];
-			}
-		}
-		Polyfit.gaussJordanEchelonize(m);
-		var terms = (this.FloatXArray && new this.FloatXArray(m.length)) || [];
-		for (i = m.length - 1; i >= 0; i--) {
-			terms[i] = m[i][p];
-		}
-		return terms;
-	};
-	/**
-	 * Using given degree of fitment, return a function that will calculate
-	 * the y for a given x
-	 *
-	 * @param {number} degree  > 0
-	 * @returns {Function}     f(x) =
-	 */
-	Polyfit.prototype.getPolynomial = function (degree) {
-		if (isNaN(degree) || degree < 0) {
-			throw new Error("Degree must be a positive integer");
-		}
-		var terms = this.computeCoefficients(degree);
-		var eqParts = [];
-		eqParts.push(terms[0].toPrecision());
-		for (var i = 1, len = terms.length; i < len; i++) {
-			eqParts.push(terms[i] + " * Math.pow(x, " + i + ")");
-		}
-		var expr = "return " + eqParts.join(" + ") + ";";
-		/* jshint evil: true */
-		return new Function("x", expr);
-		/* jshint evil: false */
-	};
-	/**
-	 * Convert the polynomial to a string expression, mostly useful for visual
-	 * debugging
-	 *
-	 * @param {number} degree
-	 * @returns {string}
-	 */
-	Polyfit.prototype.toExpression = function (degree) {
-		if (isNaN(degree) || degree < 0) {
-			throw new Error("Degree must be a positive integer");
-		}
-		var terms = this.computeCoefficients(degree);
-		var eqParts = [];
-		var len = terms.length;
-		eqParts.push(terms[0].toPrecision());
-		for (var i = 1; i < len; i++) {
-			eqParts.push(terms[i] + "x^" + i);
-		}
-		return eqParts.join(" + ");
-	};
+	}
 
 	return DFA;
 })();
