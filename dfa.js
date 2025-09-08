@@ -246,11 +246,12 @@ let DFA = (function () {
 			ys.push(ylog);
 			used.push(s);
 		}
-		if (xs.length < 3) return { alpha: null, usedRange: null };
+		if (xs.length < 3) return { alpha: null, usedRange: null, usedScales: [] };
 		const { slope } = linearRegression(xs, ys);
 		return {
 			alpha: slope,
 			usedRange: [Math.min(...used), Math.max(...used)],
+			usedScales: used,
 		};
 	}
 
@@ -455,7 +456,7 @@ let DFA = (function () {
 		const alphaScoreCat = this.alphaScore(alpha); // Legacy categorical score
 
 		// α1 (minWindow..shortMax)
-		const { alpha: alpha1, usedRange: alpha1Range } = fitAlphaInRange(
+		const { alpha: alpha1, usedRange: alpha1Range, usedScales: scalesAlpha1 } = fitAlphaInRange(
 			scales,
 			{ scale: scalesLog, fluct: fluctuationsLog },
 			[minWindow, Math.min(shortMax, N)],
@@ -466,7 +467,7 @@ let DFA = (function () {
 		// α2 (longMin..maxReliable), require ≥4 forward segments
 		// Cap at N/4 for alpha2 reliability, but still max at 128
 		const maxReliableAlpha2 = Math.min(Math.floor(N * 0.25), 128);
-		const { alpha: alpha2, usedRange: alpha2Range } = fitAlphaInRange(
+		const { alpha: alpha2, usedRange: alpha2Range, usedScales: scalesAlpha2 } = fitAlphaInRange(
 			scales,
 			{ scale: scalesLog, fluct: fluctuationsLog },
 			[longMin, maxReliableAlpha2],
@@ -498,6 +499,8 @@ let DFA = (function () {
 			alpha2,
 			alpha1Range,
 			alpha2Range,
+			scalesAlpha1,
+			scalesAlpha2,
 		};
 	};
 
