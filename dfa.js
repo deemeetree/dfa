@@ -100,10 +100,11 @@ let DFA = (function () {
 			shortMax = 16,
 			longMin = 17,
 			longMaxFraction = 0.25,
-			hardLongMax = 64,
+			hardLongMax = 128, // Changed from 64 to 128
 		} = {}
 	) {
-		const maxReli = Math.min(Math.floor(N * longMaxFraction), hardLongMax);
+		// Always use the full data length (N) up to hardLongMax, no fraction limitation
+		const maxReli = Math.min(N, hardLongMax);
 		const S = new Set();
 
 		// α1 anchors: minWindow..shortMax inclusive, in +step increments
@@ -463,11 +464,12 @@ let DFA = (function () {
 		);
 
 		// α2 (longMin..maxReliable), require ≥4 forward segments
-		const maxReliable = Math.min(Math.floor(N * longMaxFraction), 64);
+		// Cap at N/4 for alpha2 reliability, but still max at 128
+		const maxReliableAlpha2 = Math.min(Math.floor(N * 0.25), 128);
 		const { alpha: alpha2, usedRange: alpha2Range } = fitAlphaInRange(
 			scales,
 			{ scale: scalesLog, fluct: fluctuationsLog },
-			[longMin, maxReliable],
+			[longMin, maxReliableAlpha2],
 			segments,
 			4
 		);
