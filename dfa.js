@@ -100,20 +100,26 @@ let DFA = (function () {
 			shortMax = 16,
 			longMin = 17,
 			longMaxFraction = 0.25,
-			hardLongMax = 128, // Changed from 64 to 128
 		} = {}
 	) {
-		// Always use the full data length (N) up to hardLongMax, no fraction limitation
-		const maxReli = Math.min(N, hardLongMax);
+		// Use the full data length (N) for global alpha, no hard cap
+		const maxReli = N;
 		const S = new Set();
 
 		// α1 anchors: minWindow..shortMax inclusive, in +step increments
 		for (let s = minWindow; s <= Math.min(shortMax, maxReli); s += step)
 			S.add(s);
 
-		// α2 candidates:
-		const a2Lo = Math.max(longMin, minWindow + step); // ensure > α1
-		// geometric progression over [a2Lo..maxReli]
+		// α2 range: add linear steps from 16 to min(N/4, 128) with step 2
+		// Start from 16 (instead of longMin) and use step 2
+		const alpha2Start = 16;
+		const alpha2Max = Math.min(Math.floor(N * longMaxFraction), 128);
+		for (let s = alpha2Start; s <= Math.min(alpha2Max, maxReli); s += 2) {
+			S.add(s);
+		}
+
+		// Also add geometric progression for scales beyond alpha2 (for global alpha)
+		const a2Lo = Math.max(longMin, minWindow + step);
 		let g = [];
 		if (a2Lo <= maxReli) {
 			let s = a2Lo;
@@ -123,13 +129,9 @@ let DFA = (function () {
 				s *= mult;
 			}
 		}
-
-		// Short-series fallback: if too few geometric points, fill with linear increments
-		if (g.length < 3) {
-			for (let s = a2Lo; s <= maxReli; s += step) S.add(s);
-		} else {
-			for (const s of g) S.add(s);
-		}
+		
+		// Add all geometric scales (they'll be used for global alpha)
+		for (const s of g) S.add(s);
 
 		// Ensure at least 3 scales overall (global fit needs ≥3 points)
 		let scales = Array.from(S).filter((s) => s >= minWindow && s <= maxReli);
@@ -246,7 +248,8 @@ let DFA = (function () {
 			ys.push(ylog);
 			used.push(s);
 		}
-		if (xs.length < 3) return { alpha: null, usedRange: null, usedScales: [] };
+		// Require at least 2 points for alpha2 (relaxed from 3)
+		if (xs.length < 2) return { alpha: null, usedRange: null, usedScales: [] };
 		const { slope } = linearRegression(xs, ys);
 		return {
 			alpha: slope,
@@ -281,9 +284,10 @@ let DFA = (function () {
 
 	// Legacy methods kept for backward compatibility
 	DFA.prototype.cumsumVariance = function (x, mean) {
-		let cumulativeSumVariance = ((sum) => (value) => (sum += value - mean))(
-			0
-		);
+		let cumulativeSumVariance = (
+			(sum) => (value) =>
+				(sum += value - mean)
+		)(0);
 		return x.map(cumulativeSumVariance);
 	};
 
@@ -437,8 +441,7 @@ let DFA = (function () {
 		const fluctuationsLog = new Array(scales.length).fill(null);
 		for (let i = 0; i < scales.length; i++) {
 			scalesLog[i] = Math.log(scales[i]); // natural log
-			if (fluctuations[i] > 0)
-				fluctuationsLog[i] = Math.log(fluctuations[i]);
+			if (fluctuations[i] > 0) fluctuationsLog[i] = Math.log(fluctuations[i]);
 		}
 
 		// Global α on valid (non-null) points
@@ -456,7 +459,11 @@ let DFA = (function () {
 		const alphaScoreCat = this.alphaScore(alpha); // Legacy categorical score
 
 		// α1 (minWindow..shortMax)
-		const { alpha: alpha1, usedRange: alpha1Range, usedScales: scalesAlpha1 } = fitAlphaInRange(
+		const {
+			alpha: alpha1,
+			usedRange: alpha1Range,
+			usedScales: scalesAlpha1,
+		} = fitAlphaInRange(
 			scales,
 			{ scale: scalesLog, fluct: fluctuationsLog },
 			[minWindow, Math.min(shortMax, N)],
@@ -464,13 +471,18 @@ let DFA = (function () {
 			0
 		);
 
-		// α2 (longMin..maxReliable), require ≥4 forward segments
-		// Cap at N/4 for alpha2 reliability, but still max at 128
-		const maxReliableAlpha2 = Math.min(Math.floor(N * 0.25), 128);
-		const { alpha: alpha2, usedRange: alpha2Range, usedScales: scalesAlpha2 } = fitAlphaInRange(
+		// α2 (16..maxReliable), require ≥4 forward segments
+		// Start from 16 and cap at N/4 for alpha2 reliability
+		const alpha2Start = 16;
+		const maxReliableAlpha2 = Math.floor(N * 0.25);
+		const {
+			alpha: alpha2,
+			usedRange: alpha2Range,
+			usedScales: scalesAlpha2,
+		} = fitAlphaInRange(
 			scales,
 			{ scale: scalesLog, fluct: fluctuationsLog },
-			[longMin, maxReliableAlpha2],
+			[alpha2Start, maxReliableAlpha2],
 			segments,
 			4
 		);
@@ -486,6 +498,8 @@ let DFA = (function () {
 			averageDifferences,
 			scales,
 			segments,
+			scalesAlpha1,
+			scalesAlpha2,
 			fluctuations,
 			scalesLog,
 			fluctuationsLog,
@@ -499,8 +513,6 @@ let DFA = (function () {
 			alpha2,
 			alpha1Range,
 			alpha2Range,
-			scalesAlpha1,
-			scalesAlpha2,
 		};
 	};
 
