@@ -35,7 +35,15 @@ let dfa = new DFA(time_series);
 let alpha_component = dfa.compute();
 
 // Or with custom parameters:
-// dfa.compute(minWindow = 4, step = 2, expStep = 0.25, shortMax = 16, longMin = 16, longMaxFraction = 0.25)
+// dfa.compute(minWindow = 4, expStep = 0.25, step = 2, shortMax = 16, longMin = 16, longMaxFraction = 0.25)
+
+// where:
+// minWindow is the minimum window size for scales
+// expStep is the step for increasing scales for global alpha
+// step is the step for increasing scales for short alpha1 and long alpha2
+// shortMax is the maximum window size for short alpha1
+// longMin is the minimum window size for long alpha2
+// longMaxFraction is the maximum fraction of the series length for long alpha2
 
 console.log(alpha_component);
 ```

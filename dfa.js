@@ -368,8 +368,8 @@ let DFA = (function () {
 
 	DFA.prototype.compute = function (
 		minWindow = 4,
-		step = 2, // linear increment for α1 and for short series fallback
 		expStep = 0.25, // geometric log2 step for longer series (≈√2)
+		step = 2, // linear increment for α1 and for short series fallback
 		shortMax = 16,
 		longMin = 16,
 		longMaxFraction = 0.25
