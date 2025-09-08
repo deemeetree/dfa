@@ -8,7 +8,7 @@ Currently used to analyze the fractal variability of movement in [EightOS](https
 
 If you have more use cases, please, let us know.
 
-Based on the python script https://github.com/dokato/dfa and the polinomial script https://github.com/rfink/polyfit.js
+Based on the python script https://github.com/dokato/dfa
 
 ### Use
 
@@ -31,35 +31,48 @@ let time_series = [8, 10, 6, 9, 7, 5, 5, 11, 11, 8, 6, 7, 9, 10, 7, 9];
 
 let dfa = new DFA(time_series);
 
-// calculate alpha component: dfa.compute(min_window = 4, step = 0.5)
-
+// Calculate DFA with default parameters
 let alpha_component = dfa.compute();
+
+// Or with custom parameters:
+// dfa.compute(minWindow = 4, step = 2, expStep = 0.5, shortMax = 16, longMin = 17, longMaxFraction = 0.25)
 
 console.log(alpha_component);
 ```
 
 The object structure of the response is:
 
-```
-alpha_component =
-  {
-	    averageVariance: averageVariance,
-			meanValue: meanValue,
-			SDNN: SDNN,
-			RMSSD: RMSSD,
-			lnRMSSD: lnRMSSD,
-			PNN50: PNN50,
-			averageDifferences: averageDifferences,
-			scales: scales,
-			segments: arraySize,
-			fluctuations: fluctuations,
-			scales_log: scales_log,
-			fluctuations_log: flucts_log,
-			coefficients: coefficients,
-			alpha: alpha,
-			alphaScore: alphaScore,
-  }
-
+```javascript
+alpha_component = {
+    // Basic HRV statistics
+    averageVariance: avgVar,      // Population variance of the time series
+    meanValue: meanValue,          // Mean of the time series
+    lengthOfData: N,              // Length of the time series
+    SDNN: SDNN,                   // Standard deviation of NN intervals
+    RMSSD: RMSSD,                 // Root mean square of successive differences
+    lnRMSSD: lnRMSSD,            // Natural log of RMSSD
+    PNN50: PNN50,                 // Percentage of successive differences > 50ms
+    averageDifferences: avgDiff,  // Mean absolute successive differences
+    
+    // DFA results
+    scales: scales,               // Array of window sizes used
+    segments: segments,           // Array of forward segment counts per scale
+    fluctuations: fluctuations,   // F(s) values for each scale
+    scalesLog: scalesLog,        // Natural log of scales
+    fluctuationsLog: fluctLog,    // Natural log of fluctuations (null for F=0)
+    
+    // Alpha components
+    coefficients: coefficients,   // {slope, intercept} of global fit
+    alpha: alpha,                 // Global scaling exponent (DFA slope)
+    alpha1: alpha1,              // Short-term scaling (scales 4-16)
+    alpha2: alpha2,              // Long-term scaling (scales 17+)
+    alpha1Range: [min, max],     // Actual scale range used for α₁
+    alpha2Range: [min, max],     // Actual scale range used for α₂
+    
+    // Scoring
+    alphaScore: alphaScore,      // Categorical: "recovering"/"regular"/"resilient"/"tension"
+    alphaScoreNumeric: score     // Numeric: 0-100 (distance from 1.0)
+}
 ```
 
 ### Concept
@@ -73,26 +86,47 @@ It is based on the relationship between the length of an observation and cumulat
 
 ### Algorithm:
 
-1. represent a time series as a one-dimensional vector
+1. **Input Processing**: Represent the time series as a one-dimensional vector (RR intervals for HRV)
 
-2. transform it into cumulative sum of variances from the mean
+2. **Basic HRV Statistics**: Calculate population variance, SDNN, RMSSD, pNN50 for heart rate variability metrics
 
-3. generate the scales of different window sizes for the time series — each containing the number of observations
+3. **Integrated Profile**: Transform the series into cumulative sum of deviations from the mean (detrending)
 
-4. split the cumulative variance vector into those chunks
+4. **Scale Generation**: 
+   - Generate window sizes with α₁ anchors (4, 6, 8, ..., 16) using linear steps
+   - For longer series, add geometric progression for α₂ scales (17+) using factor 2^0.5
+   - Cap maximum scale at min(64, N/4) to ensure ≥4 forward segments
 
-5. for each chunk: generate polinomial in the range in a window (to detrend it)
+5. **Segmentation**: For each scale s:
+   - Divide the profile into non-overlapping segments of size s (forward segments)
+   - If remainder ≥ minWindow, also create backward segments from the end
+   - This captures both forward and backward fluctuations
 
-6. calculate RMS of the fluctuations of the original from the fit
+6. **Linear Detrending**: For each segment:
+   - Fit a linear trend using least squares regression
+   - Calculate residuals (deviations from the trend line)
+   - Compute RMS of residuals for that segment
 
-7. get the average RMS value for each window in the scale
+7. **Fluctuation Aggregation**: For each scale:
+   - Calculate F(s) = √(mean(RMS²)) across all segments
+   - This gives the characteristic fluctuation at that scale
 
-8. take the average for each squared RMS for each scale
+8. **Log-Log Analysis**:
+   - Take natural logarithm of scales and fluctuations (filtering F=0)
+   - Perform linear regression on log(scales) vs log(fluctuations)
+   - The slope gives the scaling exponent α
 
-9. if they align along in a straight line in loglog plot, there is power law relation
-   i.e. as observations increase in length, the amplitude of average fluctuations increases as well
-   that is, there is an exponential growth of fluctuations when there's an exponential growth of scale (2^n)
-   on the smaller scales the deviations are smaller. on the bigger scales they are much bigger.
+9. **Multi-Scale Analysis**:
+   - **Global α**: Fit across all valid scales
+   - **α₁**: Short-term correlations (scales 4-16)
+   - **α₂**: Long-term correlations (scales 17+, with ≥4 segments)
+   
+10. **Interpretation**:
+    - α ≈ 0.5: Uncorrelated (white noise)
+    - α ≈ 1.0: Scale-invariant, fractal-like (1/f noise)
+    - α ≈ 1.5: Brownian motion
+    - α < 0.5: Anti-correlated
+    - α > 1.0: Strong correlations
 
 ### Author
 
