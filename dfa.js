@@ -96,7 +96,7 @@ let DFA = (function () {
 		{
 			minWindow = 4,
 			step = 2, // linear step for small scales (and short series)
-			expStep = 0.5, // log2 spacing for geometric progression (≈√2)
+			expStep = 0.25, // log2 spacing for geometric progression (≈√2)
 			shortMax = 16,
 			longMin = 16,
 			longMaxFraction = 0.25,
@@ -118,12 +118,14 @@ let DFA = (function () {
 			S.add(s);
 		}
 
-		// Also add geometric progression for scales beyond alpha2 (for global alpha)
-		const a2Lo = Math.max(longMin, minWindow + step);
+		// Add geometric progression for scales beyond alpha2Max (for global alpha only)
+		// Start geometric progression after the alpha2 range ends
 		let g = [];
-		if (a2Lo <= maxReli) {
-			let s = a2Lo;
+		if (alpha2Max < maxReli) {
+			let s = alpha2Max;
 			const mult = Math.pow(2, expStep);
+			// Start from next geometric step after alpha2Max
+			s = s * mult;
 			while (s <= maxReli) {
 				g.push(Math.round(s));
 				s *= mult;
@@ -367,7 +369,7 @@ let DFA = (function () {
 	DFA.prototype.compute = function (
 		minWindow = 4,
 		step = 2, // linear increment for α1 and for short series fallback
-		expStep = 0.5, // geometric log2 step for longer series (≈√2)
+		expStep = 0.25, // geometric log2 step for longer series (≈√2)
 		shortMax = 16,
 		longMin = 16,
 		longMaxFraction = 0.25
@@ -534,7 +536,11 @@ let DFA = (function () {
 		return result;
 	};
 
-	DFA.prototype.generateScaleRange = function (array, startAt = 4, step = 0.5) {
+	DFA.prototype.generateScaleRange = function (
+		array,
+		startAt = 4,
+		step = 0.25
+	) {
 		// Legacy method - deprecated but kept for compatibility
 		let startPow = Math.sqrt(startAt);
 		let size = Math.floor((Math.log2(array.length) - startPow) / step + 1);

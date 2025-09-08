@@ -22,6 +22,7 @@ randomArrays.push([
 const before = Date.now();
 
 randomArrays.forEach((data) => {
+	console.log(JSON.stringify(data));
 	let dfa = new DFA(data);
 	let alpha_component = dfa.compute();
 	console.log(

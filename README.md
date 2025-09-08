@@ -35,7 +35,7 @@ let dfa = new DFA(time_series);
 let alpha_component = dfa.compute();
 
 // Or with custom parameters:
-// dfa.compute(minWindow = 4, step = 2, expStep = 0.5, shortMax = 16, longMin = 16, longMaxFraction = 0.25)
+// dfa.compute(minWindow = 4, step = 2, expStep = 0.25, shortMax = 16, longMin = 16, longMaxFraction = 0.25)
 
 console.log(alpha_component);
 ```
@@ -95,8 +95,9 @@ It is based on the relationship between the length of an observation and cumulat
 4. **Scale Generation**:
 
    - Generate window sizes with α₁ anchors (4, 6, 8, ..., 16) using linear steps
-   - For longer series, add geometric progression for α₂ scales (16+) using factor 2^0.5
-   - Cap maximum scale at min(64, N/4) to ensure ≥4 forward segments
+   - Generate window sizes with α₂ anchors (16, 18, 20, ..., N/4) using linear steps
+   - For global α, add geometric progression from N/4 using factor 2^0.25 to the whole window length
+   - Cap maximum scale at min(64, N/4) for α₂ to ensure ≥4 forward segments
 
 5. **Segmentation**: For each scale s:
 
