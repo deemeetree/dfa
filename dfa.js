@@ -98,7 +98,7 @@ let DFA = (function () {
 			step = 2, // linear step for small scales (and short series)
 			expStep = 0.5, // log2 spacing for geometric progression (≈√2)
 			shortMax = 16,
-			longMin = 17,
+			longMin = 16,
 			longMaxFraction = 0.25,
 		} = {}
 	) {
@@ -129,7 +129,7 @@ let DFA = (function () {
 				s *= mult;
 			}
 		}
-		
+
 		// Add all geometric scales (they'll be used for global alpha)
 		for (const s of g) S.add(s);
 
@@ -369,7 +369,7 @@ let DFA = (function () {
 		step = 2, // linear increment for α1 and for short series fallback
 		expStep = 0.5, // geometric log2 step for longer series (≈√2)
 		shortMax = 16,
-		longMin = 17,
+		longMin = 16,
 		longMaxFraction = 0.25
 	) {
 		const rr = this.x;

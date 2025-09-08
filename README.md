@@ -35,7 +35,7 @@ let dfa = new DFA(time_series);
 let alpha_component = dfa.compute();
 
 // Or with custom parameters:
-// dfa.compute(minWindow = 4, step = 2, expStep = 0.5, shortMax = 16, longMin = 17, longMaxFraction = 0.25)
+// dfa.compute(minWindow = 4, step = 2, expStep = 0.5, shortMax = 16, longMin = 16, longMaxFraction = 0.25)
 
 console.log(alpha_component);
 ```
@@ -44,35 +44,35 @@ The object structure of the response is:
 
 ```javascript
 alpha_component = {
-    // Basic HRV statistics
-    averageVariance: avgVar,      // Population variance of the time series
-    meanValue: meanValue,          // Mean of the time series
-    lengthOfData: N,              // Length of the time series
-    SDNN: SDNN,                   // Standard deviation of NN intervals
-    RMSSD: RMSSD,                 // Root mean square of successive differences
-    lnRMSSD: lnRMSSD,            // Natural log of RMSSD
-    PNN50: PNN50,                 // Percentage of successive differences > 50ms
-    averageDifferences: avgDiff,  // Mean absolute successive differences
-    
-    // DFA results
-    scales: scales,               // Array of window sizes used
-    segments: segments,           // Array of forward segment counts per scale
-    fluctuations: fluctuations,   // F(s) values for each scale
-    scalesLog: scalesLog,        // Natural log of scales
-    fluctuationsLog: fluctLog,    // Natural log of fluctuations (null for F=0)
-    
-    // Alpha components
-    coefficients: coefficients,   // {slope, intercept} of global fit
-    alpha: alpha,                 // Global scaling exponent (DFA slope)
-    alpha1: alpha1,              // Short-term scaling (scales 4-16)
-    alpha2: alpha2,              // Long-term scaling (scales 17+)
-    alpha1Range: [min, max],     // Actual scale range used for α₁
-    alpha2Range: [min, max],     // Actual scale range used for α₂
-    
-    // Scoring
-    alphaScore: alphaScore,      // Categorical: "recovering"/"regular"/"resilient"/"tension"
-    alphaScoreNumeric: score     // Numeric: 0-100 (distance from 1.0)
-}
+	// Basic HRV statistics
+	averageVariance: avgVar, // Population variance of the time series
+	meanValue: meanValue, // Mean of the time series
+	lengthOfData: N, // Length of the time series
+	SDNN: SDNN, // Standard deviation of NN intervals
+	RMSSD: RMSSD, // Root mean square of successive differences
+	lnRMSSD: lnRMSSD, // Natural log of RMSSD
+	PNN50: PNN50, // Percentage of successive differences > 50ms
+	averageDifferences: avgDiff, // Mean absolute successive differences
+
+	// DFA results
+	scales: scales, // Array of window sizes used
+	segments: segments, // Array of forward segment counts per scale
+	fluctuations: fluctuations, // F(s) values for each scale
+	scalesLog: scalesLog, // Natural log of scales
+	fluctuationsLog: fluctLog, // Natural log of fluctuations (null for F=0)
+
+	// Alpha components
+	coefficients: coefficients, // {slope, intercept} of global fit
+	alpha: alpha, // Global scaling exponent (DFA slope)
+	alpha1: alpha1, // Short-term scaling (scales 4-16)
+	alpha2: alpha2, // Long-term scaling (scales 16+)
+	alpha1Range: [min, max], // Actual scale range used for α₁
+	alpha2Range: [min, max], // Actual scale range used for α₂
+
+	// Scoring
+	alphaScore: alphaScore, // Categorical: "recovering"/"regular"/"resilient"/"tension"
+	alphaScoreNumeric: score, // Numeric: 0-100 (distance from 1.0)
+};
 ```
 
 ### Concept
@@ -92,26 +92,31 @@ It is based on the relationship between the length of an observation and cumulat
 
 3. **Integrated Profile**: Transform the series into cumulative sum of deviations from the mean (detrending)
 
-4. **Scale Generation**: 
+4. **Scale Generation**:
+
    - Generate window sizes with α₁ anchors (4, 6, 8, ..., 16) using linear steps
-   - For longer series, add geometric progression for α₂ scales (17+) using factor 2^0.5
+   - For longer series, add geometric progression for α₂ scales (16+) using factor 2^0.5
    - Cap maximum scale at min(64, N/4) to ensure ≥4 forward segments
 
 5. **Segmentation**: For each scale s:
+
    - Divide the profile into non-overlapping segments of size s (forward segments)
    - If remainder ≥ minWindow, also create backward segments from the end
    - This captures both forward and backward fluctuations
 
 6. **Linear Detrending**: For each segment:
+
    - Fit a linear trend using least squares regression
    - Calculate residuals (deviations from the trend line)
    - Compute RMS of residuals for that segment
 
 7. **Fluctuation Aggregation**: For each scale:
+
    - Calculate F(s) = √(mean(RMS²)) across all segments
    - This gives the characteristic fluctuation at that scale
 
 8. **Log-Log Analysis**:
+
    - Take natural logarithm of scales and fluctuations (filtering F=0)
    - Perform linear regression on log(scales) vs log(fluctuations)
    - The slope gives the scaling exponent α
@@ -119,8 +124,7 @@ It is based on the relationship between the length of an observation and cumulat
 9. **Multi-Scale Analysis**:
    - **Global α**: Fit across all valid scales
    - **α₁**: Short-term correlations (scales 4-16)
-   - **α₂**: Long-term correlations (scales 17+, with ≥4 segments)
-   
+   - **α₂**: Long-term correlations (scales 16+, with ≥4 segments)
 10. **Interpretation**:
     - α ≈ 0.5: Uncorrelated (white noise)
     - α ≈ 1.0: Scale-invariant, fractal-like (1/f noise)
