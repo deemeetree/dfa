@@ -23,7 +23,7 @@
     2) transform it into cumulative sum of variances from the mean
     3) generate the scales of different window sizes for the time series — each containing the number of observations
     4) split the cumulative variance vector into those chunks
-    5) for each chunk: generate polinomial in the range in a window (to detrend it)
+    5) for each chunk: generate polynomial in the range in a window (to detrend it)
     6) calculate RMS of the fluctuations of the original from the fit
     7) get the average RMS value for each window in the scale
     8) take the average for each squared RMS for each scale
@@ -42,16 +42,228 @@
     */
 
 let DFA = (function () {
-	function log2(x) {
-		return Math.log(x) / Math.log(2);
+	// Helper functions
+	function mean(x) {
+		return x.reduce((a, b) => a + b, 0) / x.length;
 	}
-	function range(size) {
-		let result = [];
-		for (let i = 0; i < size; i++) {
-			result.push(i);
+
+	function variancePopulation(x) {
+		const m = mean(x);
+		let s = 0;
+		for (let i = 0; i < x.length; i++) {
+			const d = x[i] - m;
+			s += d * d;
 		}
-		return result;
+		return s / x.length; // population variance
 	}
+
+	function sdnn(x) {
+		return Math.sqrt(variancePopulation(x));
+	}
+
+	function rmssd(x) {
+		if (x.length < 2) return 0;
+		let s = 0;
+		for (let i = 1; i < x.length; i++) {
+			const d = x[i] - x[i - 1];
+			s += d * d;
+		}
+		return Math.sqrt(s / (x.length - 1));
+	}
+
+	function pnn50(x) {
+		if (x.length < 2) return 0;
+		let c = 0;
+		for (let i = 1; i < x.length; i++) {
+			if (Math.abs(x[i] - x[i - 1]) > 50) c++;
+		}
+		return (c / (x.length - 1)) * 100;
+	}
+
+	function integratedProfile(rr) {
+		const m = mean(rr);
+		const y = new Array(rr.length);
+		let acc = 0;
+		for (let i = 0; i < rr.length; i++) {
+			acc += rr[i] - m;
+			y[i] = acc;
+		}
+		return { profile: y, meanValue: m };
+	}
+
+	function generateScales(
+		N,
+		{
+			minWindow = 4,
+			step = 2, // linear step for small scales (and short series)
+			expStep = 0.5, // log2 spacing for geometric progression (≈√2)
+			shortMax = 16,
+			longMin = 17,
+			longMaxFraction = 0.25,
+		} = {}
+	) {
+		// Use the full data length (N) for global alpha, no hard cap
+		const maxReli = N;
+		const S = new Set();
+
+		// α1 anchors: minWindow..shortMax inclusive, in +step increments
+		for (let s = minWindow; s <= Math.min(shortMax, maxReli); s += step)
+			S.add(s);
+
+		// α2 range: add linear steps from 16 to min(N/4, 128) with step 2
+		// Start from 16 (instead of longMin) and use step 2
+		const alpha2Start = 16;
+		const alpha2Max = Math.min(Math.floor(N * longMaxFraction), 128);
+		for (let s = alpha2Start; s <= Math.min(alpha2Max, maxReli); s += 2) {
+			S.add(s);
+		}
+
+		// Also add geometric progression for scales beyond alpha2 (for global alpha)
+		const a2Lo = Math.max(longMin, minWindow + step);
+		let g = [];
+		if (a2Lo <= maxReli) {
+			let s = a2Lo;
+			const mult = Math.pow(2, expStep);
+			while (s <= maxReli) {
+				g.push(Math.round(s));
+				s *= mult;
+			}
+		}
+		
+		// Add all geometric scales (they'll be used for global alpha)
+		for (const s of g) S.add(s);
+
+		// Ensure at least 3 scales overall (global fit needs ≥3 points)
+		let scales = Array.from(S).filter((s) => s >= minWindow && s <= maxReli);
+		scales.sort((a, b) => a - b);
+		if (scales.length < 3) {
+			// minimal fallback
+			scales = [
+				minWindow,
+				Math.max(minWindow + step, Math.floor((minWindow + maxReli) / 2)),
+				maxReli,
+			]
+				.filter((v, i, a) => a.indexOf(v) === i)
+				.sort((a, b) => a - b);
+		}
+		return scales;
+	}
+
+	function linearRegression(x, y) {
+		const n = x.length;
+		if (n === 0) return { slope: 0, intercept: 0 };
+		let sx = 0,
+			sy = 0,
+			sxx = 0,
+			sxy = 0;
+		for (let i = 0; i < n; i++) {
+			sx += x[i];
+			sy += y[i];
+			sxx += x[i] * x[i];
+			sxy += x[i] * y[i];
+		}
+		const denom = n * sxx - sx * sx;
+		if (denom === 0) return { slope: 0, intercept: sy / n };
+		const slope = (n * sxy - sx * sy) / denom;
+		const intercept = (sy - slope * sx) / n;
+		return { slope, intercept };
+	}
+
+	function detrendLinear(ySeg) {
+		// returns fitted values for the segment
+		const n = ySeg.length;
+		const x = new Array(n);
+		for (let i = 0; i < n; i++) x[i] = i;
+		const { slope, intercept } = linearRegression(x, ySeg);
+		const trend = new Array(n);
+		for (let i = 0; i < n; i++) trend[i] = slope * i + intercept;
+		return trend;
+	}
+
+	function fluctuationForScale(profile, s, minWindow = 4) {
+		const n = profile.length;
+		const numSegments = Math.floor(n / s);
+		if (numSegments <= 0) return { F: 0, segments: 0 };
+
+		const rms = [];
+
+		// forward segments
+		for (let seg = 0; seg < numSegments; seg++) {
+			const start = seg * s,
+				end = start + s;
+			const segData = profile.slice(start, end);
+			const trend = detrendLinear(segData);
+			let ss = 0;
+			for (let i = 0; i < s; i++) {
+				const r = segData[i] - trend[i];
+				ss += r * r;
+			}
+			rms.push(Math.sqrt(ss / s));
+		}
+
+		// backward segments if remainder is sufficiently long
+		const remainder = n % s;
+		if (remainder >= minWindow) {
+			for (let seg = 0; seg < numSegments; seg++) {
+				const end = n - seg * s;
+				const start = end - s;
+				if (start < 0) break;
+				const segData = profile.slice(start, end);
+				const trend = detrendLinear(segData);
+				let ss = 0;
+				for (let i = 0; i < s; i++) {
+					const r = segData[i] - trend[i];
+					ss += r * r;
+				}
+				rms.push(Math.sqrt(ss / s));
+			}
+		}
+
+		// canonical DFA aggregation: F(s) = sqrt( mean( RMS^2 ) )
+		if (rms.length === 0) return { F: 0, segments: numSegments };
+		let meanSq = 0;
+		for (let i = 0; i < rms.length; i++) meanSq += rms[i] * rms[i];
+		meanSq /= rms.length;
+
+		return { F: Math.sqrt(meanSq), segments: numSegments };
+	}
+
+	function fitAlphaInRange(
+		scales,
+		logs,
+		range,
+		segments = null,
+		minSegments = 0
+	) {
+		const xs = [],
+			ys = [],
+			used = [];
+		for (let i = 0; i < scales.length; i++) {
+			const s = scales[i];
+			const ylog = logs.fluct[i];
+			if (s < range[0] || s > range[1]) continue;
+			if (ylog === null) continue; // filtered out (e.g., F==0)
+			if (segments && segments[i] < minSegments) continue;
+			xs.push(logs.scale[i]);
+			ys.push(ylog);
+			used.push(s);
+		}
+		// Require at least 2 points for alpha2 (relaxed from 3)
+		if (xs.length < 2) return { alpha: null, usedRange: null, usedScales: [] };
+		const { slope } = linearRegression(xs, ys);
+		return {
+			alpha: slope,
+			usedRange: [Math.min(...used), Math.max(...used)],
+			usedScales: used,
+		};
+	}
+
+	function alphaScoreNumeric(alpha) {
+		const dev = Math.abs(alpha - 1.0);
+		return Math.max(0, (1.0 - dev) * 100);
+	}
+
+	// DFA class definition
 	let DFA = function (x) {
 		if (!(this instanceof DFA)) {
 			return new DFA(x);
@@ -70,6 +282,7 @@ let DFA = (function () {
 		this.x = x;
 	};
 
+	// Legacy methods kept for backward compatibility
 	DFA.prototype.cumsumVariance = function (x, mean) {
 		let cumulativeSumVariance = (
 			(sum) => (value) =>
@@ -79,13 +292,11 @@ let DFA = (function () {
 	};
 
 	DFA.prototype.averageVariance = function (x, mean) {
-		// Sum the absolute deviations
+		// Note: This is actually mean absolute deviation, kept for compatibility
 		let totalDeviation = 0;
 		for (let i = 0; i < x.length; i++) {
 			totalDeviation += Math.abs(x[i] - mean);
 		}
-
-		// Return the average deviation
 		return totalDeviation / x.length;
 	};
 
@@ -99,37 +310,19 @@ let DFA = (function () {
 	};
 
 	DFA.prototype.SDNN = function (x) {
-		const deviationsFromMean = this.deviationsFromMean(x, this.meanOfVector(x));
-		const squaredVector = this.squareVector(deviationsFromMean);
-		const meanSquaredVector = this.meanOfVectorNoBias(squaredVector);
-		return Math.pow(meanSquaredVector, 0.5);
+		return sdnn(x);
 	};
 
 	DFA.prototype.averageDifferences = function (x) {
 		let sumOfDifferences = 0;
-
-		// Loop through the intervals and calculate the sum of differences
 		for (let i = 0; i < x.length - 1; i++) {
 			sumOfDifferences += Math.abs(x[i + 1] - x[i]);
 		}
-
-		// Return the average difference
 		return sumOfDifferences / (x.length - 1);
 	};
 
 	DFA.prototype.RMSSD = function (x) {
-		let sumOfSquaredDifferences = 0;
-
-		// Loop through the intervals and calculate the sum of squared differences
-		for (let i = 0; i < x.length - 1; i++) {
-			const difference = Math.abs(x[i + 1] - x[i]);
-			sumOfSquaredDifferences += difference * difference;
-		}
-
-		// Calculate RMSSD
-		const rmssd = Math.sqrt(sumOfSquaredDifferences / (x.length - 1));
-
-		return rmssd;
+		return rmssd(x);
 	};
 
 	DFA.prototype.naturalLog = function (value) {
@@ -137,104 +330,22 @@ let DFA = (function () {
 	};
 
 	DFA.prototype.PNN50 = function (rrIntervals) {
-		let differences = [];
-		let countDifferencesOver50ms = 0;
-
-		// Calculate differences between successive RR intervals
-		for (let i = 1; i < rrIntervals.length; i++) {
-			differences.push(Math.abs(rrIntervals[i] - rrIntervals[i - 1])); // absolute difference
-			if (differences[i - 1] > 50) {
-				countDifferencesOver50ms++;
-			}
-		}
-
-		// Calculate pNN50
-		let pNN50 = (countDifferencesOver50ms / (rrIntervals.length - 1)) * 100;
-
-		return pNN50;
-	};
-
-	DFA.prototype.generateRange = function (array, startAt = 0, step = 1) {
-		let size = array.length;
-		return range(size).map((i) => i * step + startAt);
-	};
-
-	DFA.prototype.generateZeroArray = function (size) {
-		return range(size).map((i) => 0);
-	};
-
-	DFA.prototype.generateScaleRange = function (array, startAt = 4, step = 0.5) {
-		// the size of the scale should be not longer than the array
-		let startPow = Math.sqrt(startAt);
-		let size = Math.floor((log2(array.length) - startPow) / step + 1);
-
-		return range(size).map((i) => Math.floor(Math.pow(2, i * step + startPow))); // Math.round could be used, but .floor makes it possible to have more windows
-	};
-
-	DFA.prototype.splitArrayIntoChunks = function (arr, size, strict = false) {
-		let chunkedArray = [];
-		for (let i = 0; i < arr.length; i += size) {
-			chunkedArray.push(arr.slice(i, i + size));
-		}
-		if (strict) {
-			if (chunkedArray[chunkedArray.length - 1].length < size) {
-				chunkedArray.pop();
-			}
-		}
-		return chunkedArray;
+		return pnn50(rrIntervals);
 	};
 
 	DFA.prototype.meanOfVector = function (x) {
-		// Declare y within the function scope
-		let y = x || this.x; // If x is not provided, use this.x
-
-		// Define the mean function
-		let mean = (arr) => arr.reduce((p, c) => p + c, 0) / arr.length;
-
-		// Return the computed mean
+		let y = x || this.x;
 		return mean(y);
 	};
 
 	DFA.prototype.meanOfVectorNoBias = function (x) {
-		// Properly declare y within the function scope
 		let y = x || this.x;
-
-		// Define the mean function
-		let mean = (arr) => arr.reduce((p, c) => p + c, 0) / (arr.length - 1);
-
-		// Return the computed mean (or adjusted value)
-		return mean(y);
-	};
-
-	DFA.prototype.log2Vector = function (x) {
-		if (!(x instanceof Array)) {
-			throw new Error("log2Vector input must be an array");
-		}
-		let y = [];
-		for (let i in x) {
-			y[i] = log2(x[i]);
-		}
-		return y;
-	};
-
-	DFA.prototype.RMS = function (cut, fit) {
-		if (cut.length != fit.length) {
-			throw new Error(
-				"for calculating the RMS of the two vectors they should be equal"
-			);
-		}
-
-		// let's build the variance vector for the 2 vectors
-		let variance_vector = [];
-		for (let i = 0; i < cut.length; i++) {
-			variance_vector[i] = Math.pow(cut[i] - fit[i], 2);
-		}
-
-		// let's calculate the average for that vector and take a square root of it
-		return Math.sqrt(this.meanOfVector(variance_vector));
+		let meanNoBias = (arr) => arr.reduce((p, c) => p + c, 0) / (arr.length - 1);
+		return meanNoBias(y);
 	};
 
 	DFA.prototype.alphaScore = function (alpha, level = "moderate") {
+		// Legacy categorical score - kept for compatibility
 		let thresholds = [0.55, 0.95, 1.05];
 		if (level == "relaxed") {
 			thresholds = [0.65, 0.9, 1.1];
@@ -254,301 +365,225 @@ let DFA = (function () {
 	};
 
 	DFA.prototype.compute = function (
-		min_window = 4,
-		step = 0.5,
-		level = "moderate"
+		minWindow = 4,
+		step = 2, // linear increment for α1 and for short series fallback
+		expStep = 0.5, // geometric log2 step for longer series (≈√2)
+		shortMax = 16,
+		longMin = 17,
+		longMaxFraction = 0.25
 	) {
-		/* 
-					Transform the series into the cumulative sum of variances (deviations from the mean).
-					We need this to only look at the fluctuations and not the absolute values.
-					*/
-
-		let cumsum = this.cumsumVariance(this.x, this.meanOfVector(this.x));
-
-		let averageVariance = this.averageVariance(
-			this.x,
-			this.meanOfVector(this.x)
-		);
-
-		let meanValue = this.meanOfVector(this.x);
-
-		let SDNN = this.SDNN(this.x);
-
-		let RMSSD = this.RMSSD(this.x);
-
-		let lnRMSSD = this.naturalLog(RMSSD);
-
-		let PNN50 = this.PNN50(this.x);
-
-		let averageDifferences = this.averageDifferences(this.x);
-
-		let lengthOfData = this.x.length;
-
-		/* 
-					Create observation windows of length, e.g scales = [4,5,8,11,16]
-					Scale of the window size from min_window to max series length.
-					Each increment is made at the rate of 2^step.
-					This is done to have exponential increase of the scale windows.
-					*/
-		let scales = this.generateScaleRange(cumsum, min_window, step);
-
-		/* 
-					Split the cumulative sum into the window chunks of scales.
-					E.g. for a series of 16 values, the first window of size 4 will split it into 4 windows of 4 values in each.
-					*/
-		let split_scales = {};
-
-		let fluctuations = [];
-
-		for (let s in scales) {
-			// split cumsum into the window sizes of scales[s]
-			let window_size = scales[s];
-
-			split_scales[window_size] = this.splitArrayIntoChunks(
-				cumsum,
-				window_size,
-				true
-			);
-
-			let num_windows = split_scales[window_size].length;
-
-			/* 
-						For each window let's build a polynomial in order to detrend it.
-						Then we will calculate RMS (root mean square) for each window (standard deviation)
-						*/
-
-			let rms = this.generateZeroArray(num_windows);
-
-			for (let chunk in split_scales[window_size]) {
-				// a chunk window of the scale w
-				let xcut = split_scales[window_size][chunk];
-
-				// values vector
-				let vector = this.generateRange(xcut, 0, 1);
-
-				// calculate polynomial fit of the cumsum in the split scale
-				// e.g. make a straight line that fits values found in that window row
-				let poly = new Polyfit(vector, xcut);
-
-				// use polyfit coefficients to build a straight line xfit along the split_scales[w] data
-				// using the coefficiens that can be retried via poly.computeCoefficients(1)
-				// this is how we detrend the data
-				let coeff = poly.getPolynomial(1); // 1 is the degree
-				let xfit = [];
-				for (let c in vector) {
-					xfit[c] = coeff(c);
-				}
-
-				// let's now calculate the root mean square off the differences
-				// between the values in this window chunk (xcut) and the fit (xfit)
-				rms[chunk] = Math.pow(this.RMS(xcut, xfit), 2);
-
-				poly = null;
-			}
-
-			// let's get the average of the variance for each window in this scale
-			// and calculate its deviation
-			fluctuations[s] = Math.sqrt(this.meanOfVector(rms));
-		}
-		/* 
-					Calculate best-fit for the Scales to Fluctuations (RMS)
-					We now have the vector with scales that shows the number of values in each window.
-					We also have the fluctuations vector, which shows the square root of the mean RMS.
-					We plot them against each other on the log base 2 scales and find the coefficient of the best-fit.
-					*/
-
-		let scales_log = this.log2Vector(scales);
-		let flucts_log = this.log2Vector(fluctuations);
-		let alpha_poly = new Polyfit(scales_log, flucts_log);
-
-		let coefficients = alpha_poly.computeCoefficients(1);
-
-		let alpha = coefficients[1];
-
-		let arraySize = scales.length;
-
-		let alphaScore = this.alphaScore(alpha, level);
-
-		let result = {
-			averageVariance: averageVariance,
-			meanValue: meanValue,
-			lengthOfData: lengthOfData,
-			SDNN: SDNN,
-			RMSSD: RMSSD,
-			lnRMSSD: lnRMSSD,
-			PNN50: PNN50,
-			averageDifferences: averageDifferences,
-			scales: scales,
-			segments: arraySize,
-			fluctuations: fluctuations,
-			scales_log: scales_log,
-			fluctuations_log: flucts_log,
-			coefficients: coefficients,
-			alpha: alpha,
-			alphaScore: alphaScore,
-		};
-
-		return result;
-	};
-
-	/* 
-				POLINOMIAL CALCULATION
-				taken from https://github.com/rfink/polyfit.js
-    
-				~ Concept:
-    
-				What is a function that best describes a relationship? 
-				n is the degree, so if n = 1, what is the straight line that describes the relationship
-			
-				~ Use: 
-    
-				let poly = new Polyfit([0,1,2,3],[0,0,-2,-3]) 
-				poly.computeCoefficients(1) // 1 is the degree
-				// result: [0.4, -1.1] - python DFA algorithm yields reverse order
-				let func = poly.getPolynomial(1)
-				func(0)
-				func(1)
-				etc. for the fit
-			
-				*/
-
-	class Polyfit {
-		constructor(x, y) {
-			// Validate input arrays
-			if (!Array.isArray(x) || !Array.isArray(y)) {
-				throw new Error("x and y must be arrays");
-			}
-
-			if (x.length !== y.length) {
-				throw new Error("x and y must have the same length");
-			}
-
-			this.x = x;
-			this.y = y;
-
-			this.FloatXArray =
-				x instanceof Float32Array
-					? Float32Array
-					: x instanceof Float64Array
-					? Float64Array
-					: null;
-		}
-
-		static gaussJordanDivide(matrix, row, col, numCols) {
-			const divisor = matrix[row][col];
-			for (var i = col + 1; i < numCols; i++) {
-				matrix[row][i] /= divisor;
-			}
-			matrix[row][col] = 1;
-		}
-
-		static gaussJordanEliminate(matrix, row, col, numRows, numCols) {
-			for (var i = 0; i < numRows; i++) {
-				if (i !== row) {
-					var factor = matrix[i][col];
-					for (var j = col + 1; j < numCols; j++) {
-						matrix[i][j] -= factor * matrix[row][j];
-					}
-					matrix[i][col] = 0;
-				}
-			}
-		}
-
-		static gaussJordanEchelonize(matrix) {
-			const rows = matrix.length;
-			const cols = matrix[0].length;
-
-			for (var col = 0, row = 0; col < cols && row < rows; col++) {
-				var maxRow = row;
-				for (var i = row + 1; i < rows; i++) {
-					if (Math.abs(matrix[i][col]) > Math.abs(matrix[maxRow][col])) {
-						maxRow = i;
-					}
-				}
-
-				if (matrix[maxRow][col] === 0) continue;
-
-				// Swap rows
-				var temp = matrix[row];
-				matrix[row] = matrix[maxRow];
-				matrix[maxRow] = temp;
-
-				Polyfit.gaussJordanDivide(matrix, row, col, cols);
-				Polyfit.gaussJordanEliminate(matrix, row, col, rows, cols);
-				row++;
-			}
-		}
-
-		computeCoefficients(p) {
-			const n = this.x.length;
-			var m = [];
-			for (var i = 0; i < p + 1; i++) {
-				var row = [];
-				for (var j = 0; j < p + 2; j++) {
-					row.push(0);
-				}
-				m.push(row);
-			}
-
-			var mpc = [];
-			for (var idx = 0; idx < 2 * (p + 1) - 1; idx++) {
-				var sum = 0;
-				for (var i = 0; i < n; i++) {
-					sum += Math.pow(this.x[i], idx);
-				}
-				mpc.push(sum);
-			}
-
-			for (var r = 0; r < p + 1; r++) {
-				for (var c = 0; c < p + 1; c++) {
-					m[r][c] = mpc[r + c];
-				}
-			}
-
-			for (var i = 0; i < n; i++) {
-				var temp = 1;
-				for (var j = 0; j < p + 1; j++) {
-					m[j][p + 1] += temp * this.y[i];
-					temp *= this.x[i];
-				}
-			}
-
-			Polyfit.gaussJordanEchelonize(m);
-			var result = [];
-			for (var i = 0; i < m.length; i++) {
-				result.push(m[i][p + 1]);
-			}
-			return result;
-		}
-
-		getPolynomial(degree) {
-			if (isNaN(degree) || degree < 0) {
-				throw new Error("Degree must be a positive integer");
-			}
-
-			var terms = this.computeCoefficients(degree);
-			return function (x) {
-				var result = 0;
-				for (var idx = 0; idx < terms.length; idx++) {
-					result += terms[idx] * Math.pow(x, idx);
-				}
-				return result;
+		const rr = this.x;
+		const N = rr.length;
+		if (N <= minWindow) {
+			return {
+				averageVariance: 0,
+				meanValue: 0,
+				lengthOfData: N,
+				SDNN: 0,
+				RMSSD: 0,
+				lnRMSSD: 0,
+				PNN50: 0,
+				averageDifferences: 0,
+				scales: [],
+				segments: [],
+				fluctuations: [],
+				scalesLog: [],
+				fluctuationsLog: [],
+				scales_log: [], // Legacy alias
+				fluctuations_log: [], // Legacy alias
+				coefficients: { slope: 0, intercept: 0 },
+				alpha: 1.0,
+				alphaScore: 0,
+				alpha1: null,
+				alpha2: null,
+				alpha1Range: null,
+				alpha2Range: null,
 			};
 		}
 
-		toExpression(degree) {
-			if (isNaN(degree) || degree < 0) {
-				throw new Error("Degree must be a positive integer");
-			}
+		// Basic stats (parity with Swift)
+		const meanValue = mean(rr);
+		const avgVar = variancePopulation(rr);
+		const SDNN = Math.sqrt(avgVar);
+		const RMSSD = rmssd(rr);
+		const lnRMSSD = RMSSD > 0 ? Math.log(RMSSD) : 0;
+		const PNN50 = pnn50(rr);
+		// Keep averageDifferences to match legacy JS result
+		let sumAbs = 0;
+		for (let i = 1; i < N; i++) sumAbs += Math.abs(rr[i] - rr[i - 1]);
+		const averageDifferences = N > 1 ? sumAbs / (N - 1) : 0;
 
-			var terms = this.computeCoefficients(degree);
-			var expressions = [];
-			for (var idx = 0; idx < terms.length; idx++) {
-				expressions.push(terms[idx].toPrecision() + "x^" + idx);
-			}
-			return expressions.join(" + ");
+		// Profile
+		const { profile } = integratedProfile(rr);
+
+		// Scales
+		const scales = generateScales(N, {
+			minWindow,
+			step,
+			expStep,
+			shortMax,
+			longMin,
+			longMaxFraction,
+		});
+		const segments = new Array(scales.length);
+		const fluctuations = new Array(scales.length);
+
+		// F(s) per scale (forward+backward); record forward segments only
+		for (let i = 0; i < scales.length; i++) {
+			const s = scales[i];
+			const { F, segments: segs } = fluctuationForScale(profile, s, minWindow);
+			fluctuations[i] = F;
+			segments[i] = segs; // parity with Swift (forward only)
 		}
-	}
+
+		// Filter zeros before logs
+		const scalesLog = new Array(scales.length);
+		const fluctuationsLog = new Array(scales.length).fill(null);
+		for (let i = 0; i < scales.length; i++) {
+			scalesLog[i] = Math.log(scales[i]); // natural log
+			if (fluctuations[i] > 0) fluctuationsLog[i] = Math.log(fluctuations[i]);
+		}
+
+		// Global α on valid (non-null) points
+		const xAll = [],
+			yAll = [];
+		for (let i = 0; i < scales.length; i++) {
+			if (fluctuationsLog[i] !== null) {
+				xAll.push(scalesLog[i]);
+				yAll.push(fluctuationsLog[i]);
+			}
+		}
+		const coefficients = linearRegression(xAll, yAll);
+		const alpha = coefficients.slope;
+		const alphaScoreVal = alphaScoreNumeric(alpha);
+		const alphaScoreCat = this.alphaScore(alpha); // Legacy categorical score
+
+		// α1 (minWindow..shortMax)
+		const {
+			alpha: alpha1,
+			usedRange: alpha1Range,
+			usedScales: scalesAlpha1,
+		} = fitAlphaInRange(
+			scales,
+			{ scale: scalesLog, fluct: fluctuationsLog },
+			[minWindow, Math.min(shortMax, N)],
+			null,
+			0
+		);
+
+		// α2 (16..maxReliable), require ≥4 forward segments
+		// Start from 16 and cap at N/4 for alpha2 reliability
+		const alpha2Start = 16;
+		const maxReliableAlpha2 = Math.floor(N * 0.25);
+		const {
+			alpha: alpha2,
+			usedRange: alpha2Range,
+			usedScales: scalesAlpha2,
+		} = fitAlphaInRange(
+			scales,
+			{ scale: scalesLog, fluct: fluctuationsLog },
+			[alpha2Start, maxReliableAlpha2],
+			segments,
+			4
+		);
+
+		return {
+			averageVariance: avgVar,
+			meanValue,
+			lengthOfData: N,
+			SDNN,
+			RMSSD,
+			lnRMSSD,
+			PNN50,
+			averageDifferences,
+			scales,
+			segments,
+			scalesAlpha1,
+			scalesAlpha2,
+			fluctuations,
+			scalesLog,
+			fluctuationsLog,
+			scales_log: scalesLog, // Legacy alias
+			fluctuations_log: fluctuationsLog, // Legacy alias
+			coefficients,
+			alpha,
+			alphaScore: alphaScoreCat, // Legacy categorical
+			alphaScoreNumeric: alphaScoreVal, // New numeric score
+			alpha1,
+			alpha2,
+			alpha1Range,
+			alpha2Range,
+		};
+	};
+
+	// Deprecated/unused methods kept for backward compatibility
+	DFA.prototype.generateRange = function (array, startAt = 0, step = 1) {
+		let size = array.length;
+		let result = [];
+		for (let i = 0; i < size; i++) {
+			result.push(i * step + startAt);
+		}
+		return result;
+	};
+
+	DFA.prototype.generateZeroArray = function (size) {
+		let result = [];
+		for (let i = 0; i < size; i++) {
+			result.push(0);
+		}
+		return result;
+	};
+
+	DFA.prototype.generateScaleRange = function (array, startAt = 4, step = 0.5) {
+		// Legacy method - deprecated but kept for compatibility
+		let startPow = Math.sqrt(startAt);
+		let size = Math.floor((Math.log2(array.length) - startPow) / step + 1);
+		let result = [];
+		for (let i = 0; i < size; i++) {
+			result.push(Math.floor(Math.pow(2, i * step + startPow)));
+		}
+		return result;
+	};
+
+	DFA.prototype.splitArrayIntoChunks = function (arr, size, strict = false) {
+		// Legacy method - deprecated but kept for compatibility
+		let chunkedArray = [];
+		for (let i = 0; i < arr.length; i += size) {
+			chunkedArray.push(arr.slice(i, i + size));
+		}
+		if (strict) {
+			if (chunkedArray[chunkedArray.length - 1].length < size) {
+				chunkedArray.pop();
+			}
+		}
+		return chunkedArray;
+	};
+
+	DFA.prototype.log2Vector = function (x) {
+		// Legacy method - deprecated but kept for compatibility
+		if (!(x instanceof Array)) {
+			throw new Error("log2Vector input must be an array");
+		}
+		let y = [];
+		for (let i in x) {
+			y[i] = Math.log2(x[i]);
+		}
+		return y;
+	};
+
+	DFA.prototype.RMS = function (cut, fit) {
+		// Legacy method - deprecated but kept for compatibility
+		if (cut.length != fit.length) {
+			throw new Error(
+				"for calculating the RMS of the two vectors they should be equal"
+			);
+		}
+		let variance_vector = [];
+		for (let i = 0; i < cut.length; i++) {
+			variance_vector[i] = Math.pow(cut[i] - fit[i], 2);
+		}
+		return Math.sqrt(mean(variance_vector));
+	};
 
 	return DFA;
 })();
