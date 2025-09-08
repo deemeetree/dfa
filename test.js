@@ -6,27 +6,35 @@ let randomArrays = [];
 
 console.log("generating signals");
 
-testLengths.forEach((length) => {
-	randomArrays.push(
-		Array.from({ length: length }, () => Math.floor(Math.random() * 1000) + 1)
-	);
-});
+// testLengths.forEach((length) => {
+// 	randomArrays.push(
+// 		Array.from({ length: length }, () => Math.floor(Math.random() * 1000) + 1)
+// 	);
+// });
 
-// randomArrays.push([
-// 	959.0, 1156.2, 1084.0, 1041.0, 1095.7, 1093.8, 1113.3, 1091.8, 933.6, 1121.1,
-// 	1039.1, 1056.6, 1103.5, 1080.1, 1058.6, 1072.3, 1031.2, 906.2, 1046.9, 1015.6,
-// 	1037.1, 1078.1, 1054.7, 1095.7, 1064.5, 1029.3, 1009.8,
-// ]);
+randomArrays.push([
+	3, 3, 3, 3, 3, 3, 3, 3, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 3, 2, 2, 2, 1, 2,
+	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 2, 3, 3, 3, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2,
+	3, 3, 2, 2, 4, 4, 4, 3, 3, 3, 4, 3, 3, 4, 3, 3, 3, 3, 3, 3, 2, 3, 3, 3, 2, 2,
+	3, 2, 3, 3, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+	3, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+]);
 const before = Date.now();
 
 randomArrays.forEach((data) => {
+	console.log(JSON.stringify(data));
 	let dfa = new DFA(data);
 	let alpha_component = dfa.compute();
-	console.log(`N=${alpha_component.lengthOfData}, scales:`, alpha_component.scales);
-	console.log(`Alpha: ${alpha_component.alpha}, Alpha1: ${alpha_component.alpha1}, Alpha2: ${alpha_component.alpha2}`);
+	console.log(
+		`N=${alpha_component.lengthOfData}, scales:`,
+		alpha_component.scales
+	);
+	console.log(
+		`Alpha: ${alpha_component.alpha}, Alpha1: ${alpha_component.alpha1}, Alpha2: ${alpha_component.alpha2}`
+	);
 	console.log(`scalesAlpha1:`, alpha_component.scalesAlpha1);
 	console.log(`scalesAlpha2:`, alpha_component.scalesAlpha2);
-	console.log('---');
+	console.log("---");
 });
 
 const after = Date.now();
