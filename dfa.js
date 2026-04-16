@@ -110,10 +110,9 @@ let DFA = (function () {
 		for (let s = minWindow; s <= Math.min(shortMax, maxReli); s += step)
 			S.add(s);
 
-		// α2 range: add linear steps from 16 to min(N/4, 128) with step 2
-		// Start from 16 (instead of longMin) and use step 2
+		// α2 range: add linear steps from 16 to N/4 with step 2
 		const alpha2Start = 16;
-		const alpha2Max = Math.min(Math.floor(N * longMaxFraction), 128);
+		const alpha2Max = Math.floor(N * longMaxFraction);
 		for (let s = alpha2Start; s <= Math.min(alpha2Max, maxReli); s += 2) {
 			S.add(s);
 		}
@@ -250,8 +249,7 @@ let DFA = (function () {
 			ys.push(ylog);
 			used.push(s);
 		}
-		// Require at least 2 points for alpha2 (relaxed from 3)
-		if (xs.length < 2) return { alpha: null, usedRange: null, usedScales: [] };
+		if (xs.length < 3) return { alpha: null, usedRange: null, usedScales: [] };
 		const { slope } = linearRegression(xs, ys);
 		return {
 			alpha: slope,
