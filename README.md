@@ -72,16 +72,35 @@ alpha_component = {
 	// Alpha components
 	coefficients: coefficients, // {slope, intercept} of global fit
 	alpha: alpha, // Global scaling exponent (DFA slope)
-	alpha1: alpha1, // Short-term scaling (scales 4-16)
-	alpha2: alpha2, // Long-term scaling (scales 16+)
-	alpha1Range: [min, max], // Actual scale range used for α₁
-	alpha2Range: [min, max], // Actual scale range used for α₂
+	alpha1: alpha1, // Short-term scaling (scales 4–16), null if insufficient data
+	alpha2: alpha2, // Long-term scaling (scales 16–N/4), null if insufficient data
+	alpha1Range: [min, max], // Actual scale range used for α₁ (null when alpha1 is null)
+	alpha2Range: [min, max], // Actual scale range used for α₂ (null when alpha2 is null)
+	scalesAlpha1: [...], // Window sizes included in the α₁ fit
+	scalesAlpha2: [...], // Window sizes included in the α₂ fit
 
 	// Scoring
 	alphaScore: alphaScore, // Categorical: "recovering"/"regular"/"resilient"/"tension"
 	alphaScoreNumeric: score, // Numeric: 0-100 (distance from 1.0)
 };
 ```
+
+### Alpha1 and Alpha2
+
+The DFA algorithm produces three scaling exponents:
+
+- **Global α** (`alpha`) — fitted across all scales, from `minWindow` up to the full series length.
+- **α₁** (`alpha1`) — short-term correlations, fitted over scales 4–16 (controlled by `minWindow` and `shortMax`). Captures beat-to-beat dynamics in HRV or local patterns in other time series.
+- **α₂** (`alpha2`) — long-term correlations, fitted over scales 16–N/4 (controlled by `longMin` and `longMaxFraction`, capped at 128 during scale generation). Captures slower trends and regulatory patterns.
+
+The crossover point between α₁ and α₂ is at scale 16 by default (both ranges include it).
+
+**When alpha1 or alpha2 is `null`:**
+
+- `alpha1` requires at least 2 valid scales in the 4–16 range. For very short series (N < 8), there may not be enough.
+- `alpha2` requires at least 2 valid scales in the 16–N/4 range, each with at least 4 forward segments. This means you need roughly **N ≥ 256** for a reliable alpha2 (since at scale 32, you need 4 segments → N ≥ 128, but the range 16–32 with the segment filter often leaves too few points for shorter series).
+
+For short series, rely on the global `alpha` and `alpha1`. For long series (500+ points), all three exponents are typically available.
 
 ### Concept
 
