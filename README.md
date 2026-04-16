@@ -80,13 +80,18 @@ alpha_component = {
 	scalesAlpha1: [...], // Window sizes included in the α₁ fit
 	scalesAlpha2: [...], // Window sizes included in the α₂ fit
 
-	// Labels (DFA interpretation)
+	// Labels — simplified (4 categories)
 	alphaLabel: "fractal", // "random" / "regular" / "fractal" / "complex"
-	alpha1Label: "fractal", // Same labels for α₁ (null when alpha1 is null)
-	alpha2Label: "regular", // Same labels for α₂ (null when alpha2 is null)
+	alpha1Label: "fractal", // Same for α₁ (null when alpha1 is null)
+	alpha2Label: "regular", // Same for α₂ (null when alpha2 is null)
 
-	// Scoring — legacy HRV labels (same thresholds as labels, different names)
-	alphaScore: "resilient", // Legacy: "recovering" / "regular" / "resilient" / "tension"
+	// Labels — traditional DFA (6 categories)
+	dfaLabel: "1/f noise", // Scientific DFA classification for global α
+	dfa1Label: "1/f noise", // Same for α₁ (null when alpha1 is null)
+	dfa2Label: "correlated", // Same for α₂ (null when alpha2 is null)
+
+	// Labels — legacy HRV (same thresholds as alphaLabel, different names)
+	alphaScore: "resilient", // "recovering" / "regular" / "resilient" / "tension"
 	alpha1Score: "resilient", // Same for α₁ (null when alpha1 is null)
 	alpha2Score: "regular", // Same for α₂ (null when alpha2 is null)
 
@@ -164,23 +169,42 @@ It is based on the relationship between the length of an observation and cumulat
 
 ### Scoring and Interpretation
 
-The output includes three types of scores for each alpha (global, α₁, α₂):
+The output includes multiple label systems and numeric scores for each alpha (global, α₁, α₂). All categorical labels are affected by the `level` parameter passed to `compute()`.
 
-**`alphaLabel` / `alpha1Label` / `alpha2Label`** — DFA interpretation labels.
-**`alphaScore` / `alpha1Score` / `alpha2Score`** — Legacy HRV-specific labels (same thresholds, different names).
+#### Simplified labels (4 categories)
 
-Both use the same thresholds controlled by the `level` parameter. The `alphaScore` names were designed for HRV biofeedback contexts where α ≈ 1.0 indicates a healthy, resilient heart. The `alphaLabel` names are general-purpose DFA terminology suitable for any time series.
+**`alphaLabel` / `alpha1Label` / `alpha2Label`** — general-purpose labels suitable for any time series.
+**`alphaScore` / `alpha1Score` / `alpha2Score`** — legacy HRV-specific labels (same thresholds, different names), designed for biofeedback contexts where α ≈ 1.0 indicates a healthy, resilient heart.
 
-| | `"moderate"` (default) | `"relaxed"` | `"strict"` |
-|---|---|---|---|
-| **random** / recovering | α ≤ 0.55 | α ≤ 0.65 | α ≤ 0.50 |
-| **regular** / regular | 0.55 < α < 0.95 | 0.65 < α < 0.90 | 0.50 < α < 0.98 |
-| **fractal** / resilient | 0.95 ≤ α ≤ 1.05 | 0.90 ≤ α ≤ 1.10 | 0.98 ≤ α ≤ 1.02 |
-| **complex** / tension | α > 1.05 | α > 1.10 | α > 1.02 |
+| `alphaLabel` | `alphaScore` | `"moderate"` (default) | `"relaxed"` | `"strict"` |
+|---|---|---|---|---|
+| `"random"` | `"recovering"` | α ≤ 0.55 | α ≤ 0.65 | α ≤ 0.50 |
+| `"regular"` | `"regular"` | 0.55 < α < 0.95 | 0.65 < α < 0.90 | 0.50 < α < 0.98 |
+| `"fractal"` | `"resilient"` | 0.95 ≤ α ≤ 1.05 | 0.90 ≤ α ≤ 1.10 | 0.98 ≤ α ≤ 1.02 |
+| `"complex"` | `"tension"` | α > 1.05 | α > 1.10 | α > 1.02 |
 
-- **`"relaxed"`** — wider "fractal" zone (0.90–1.10), useful for noisy real-world data or short recordings where alpha estimates have higher variance.
-- **`"moderate"`** — balanced thresholds (0.95–1.05), suitable for most applications.
-- **`"strict"`** — narrow "fractal" zone (0.98–1.02), for research contexts requiring precise classification or long, clean recordings.
+#### Traditional DFA labels (6 categories)
+
+**`dfaLabel` / `dfa1Label` / `dfa2Label`** — scientific DFA classification with finer granularity, using zones around the three canonical alpha values (0.5, 1.0, 1.5):
+
+| `dfaLabel` | `"moderate"` (default) | `"relaxed"` | `"strict"` | Signal characteristic |
+|---|---|---|---|---|
+| `"anti-correlated"` | α < 0.45 | α < 0.40 | α < 0.48 | Successive values tend to alternate |
+| `"white noise"` | 0.45 ≤ α ≤ 0.55 | 0.40 ≤ α ≤ 0.60 | 0.48 ≤ α ≤ 0.52 | Uncorrelated, random |
+| `"correlated"` | 0.55 < α < 0.95 | 0.60 < α < 0.90 | 0.52 < α < 0.98 | Long-range power-law correlations |
+| `"1/f noise"` | 0.95 ≤ α ≤ 1.05 | 0.90 ≤ α ≤ 1.10 | 0.98 ≤ α ≤ 1.02 | Scale-invariant, fractal |
+| `"strongly correlated"` | 1.05 < α < 1.45 | 1.10 < α < 1.40 | 1.02 < α < 1.48 | Strong persistence, trending |
+| `"Brownian motion"` | α ≥ 1.45 | α ≥ 1.40 | α ≥ 1.48 | Random walk, integrated noise |
+
+The simplified `alphaLabel` maps to `dfaLabel` as follows: `"random"` covers both `"anti-correlated"` and `"white noise"`, `"regular"` equals `"correlated"`, `"fractal"` equals `"1/f noise"`, and `"complex"` covers both `"strongly correlated"` and `"Brownian motion"`.
+
+#### Threshold levels
+
+- **`"relaxed"`** — wider zones around key values, useful for noisy real-world data or short recordings where alpha estimates have higher variance.
+- **`"moderate"`** — balanced thresholds, suitable for most applications.
+- **`"strict"`** — narrow zones, for research contexts requiring precise classification or long, clean recordings.
+
+#### Numeric scores
 
 **`alphaScoreNumeric` / `alpha1ScoreNumeric` / `alpha2ScoreNumeric`** — Numeric score from 0 to 100, where 100 means α = 1.0 (perfect fractal scaling) and 0 means α is ≥1.0 away from the ideal. Not affected by the `level` parameter.
 
