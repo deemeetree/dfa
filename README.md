@@ -91,14 +91,14 @@ The DFA algorithm produces three scaling exponents:
 
 - **Global α** (`alpha`) — fitted across all scales, from `minWindow` up to the full series length.
 - **α₁** (`alpha1`) — short-term correlations, fitted over scales 4–16 (controlled by `minWindow` and `shortMax`). Captures beat-to-beat dynamics in HRV or local patterns in other time series.
-- **α₂** (`alpha2`) — long-term correlations, fitted over scales 16–N/4 (controlled by `longMin` and `longMaxFraction`, capped at 128 during scale generation). Captures slower trends and regulatory patterns.
+- **α₂** (`alpha2`) — long-term correlations, fitted over scales 16–N/4 (controlled by `longMin` and `longMaxFraction`). Captures slower trends and regulatory patterns.
 
 The crossover point between α₁ and α₂ is at scale 16 by default (both ranges include it).
 
 **When alpha1 or alpha2 is `null`:**
 
-- `alpha1` requires at least 2 valid scales in the 4–16 range. For very short series (N < 8), there may not be enough.
-- `alpha2` requires at least 2 valid scales in the 16–N/4 range, each with at least 4 forward segments. This means you need roughly **N ≥ 256** for a reliable alpha2 (since at scale 32, you need 4 segments → N ≥ 128, but the range 16–32 with the segment filter often leaves too few points for shorter series).
+- `alpha1` requires at least 3 valid scales in the 4–16 range. For very short series (N < 8), there may not be enough.
+- `alpha2` requires at least 3 valid scales in the 16–N/4 range, each with at least 4 forward segments. This means you need roughly **N ≥ 256** for a reliable alpha2 (since at scale 32, you need 4 segments → N ≥ 128, but the range 16–32 with the segment filter often leaves too few points for shorter series).
 
 For short series, rely on the global `alpha` and `alpha1`. For long series (500+ points), all three exponents are typically available.
 
@@ -120,31 +120,26 @@ It is based on the relationship between the length of an observation and cumulat
 3. **Integrated Profile**: Transform the series into cumulative sum of deviations from the mean (detrending)
 
 4. **Scale Generation**:
-
    - Generate window sizes with α₁ anchors (4, 6, 8, ..., 16) using linear steps
    - Generate window sizes with α₂ anchors (16, 18, 20, ..., N/4) using linear steps
    - For global α, add geometric progression from N/4 using factor 2^0.25 to the whole window length
-   - Cap maximum scale at min(64, N/4) for α₂ to ensure ≥4 forward segments
+   - Cap maximum scale at N/4 for α₂ to ensure ≥4 forward segments
 
 5. **Segmentation**: For each scale s:
-
    - Divide the profile into non-overlapping segments of size s (forward segments)
    - If remainder ≥ minWindow, also create backward segments from the end
    - This captures both forward and backward fluctuations
 
 6. **Linear Detrending**: For each segment:
-
    - Fit a linear trend using least squares regression
    - Calculate residuals (deviations from the trend line)
    - Compute RMS of residuals for that segment
 
 7. **Fluctuation Aggregation**: For each scale:
-
    - Calculate F(s) = √(mean(RMS²)) across all segments
    - This gives the characteristic fluctuation at that scale
 
 8. **Log-Log Analysis**:
-
    - Take natural logarithm of scales and fluctuations (filtering F=0)
    - Perform linear regression on log(scales) vs log(fluctuations)
    - The slope gives the scaling exponent α
@@ -160,9 +155,21 @@ It is based on the relationship between the length of an observation and cumulat
     - α < 0.5: Anti-correlated
     - α > 1.0: Strong correlations
 
+### References
+
+- Peng, C.-K., Havlin, S., Stanley, H.E., & Goldberger, A.L. (1995). Quantification of scaling exponents and crossover phenomena in nonstationary heartbeat time series. _Chaos_, 5(1), 82–87. [doi:10.1063/1.166141](https://doi.org/10.1063/1.166141) — The foundational DFA paper that named the method, applied it to HRV, and introduced the α1/α2 crossover.
+
+- Shaffer, F. & Ginsberg, J.P. (2017). An overview of heart rate variability metrics and norms. _Frontiers in Public Health_, 5, 258. [doi:10.3389/fpubh.2017.00258](https://doi.org/10.3389/fpubh.2017.00258) — Comprehensive review of HRV metrics including DFA, with normative values for clinical and healthy populations.
+
+- Kantelhardt, J.W., Zschiegner, S.A., Koscielny-Bunde, E., Havlin, S., Bunde, A., & Stanley, H.E. (2002). Multifractal detrended fluctuation analysis of nonstationary time series. _Physica A_, 316(1–4), 87–114. [doi:10.1016/S0378-4371(02)01383-3](<https://doi.org/10.1016/S0378-4371(02)01383-3>) — Extension to multifractal DFA (MF-DFA) with detailed discussion of scale selection and segment requirements.
+
+- Hardstone, R., Poil, S.-S., Schiavone, G., Jansen, R., Nikulin, V.V., Mansvelder, H.D., & Linkenkaer-Hansen, K. (2012). Detrended fluctuation analysis: A scale-free view on neuronal oscillations. _Frontiers in Physiology_, 3, 450. [doi:10.3389/fphys.2012.00450](https://doi.org/10.3389/fphys.2012.00450) — Practical guide to DFA parameter choices including minimum segment counts and scale ranges.
+
+- Paranyushkin D (2021). Fractal Variability Movement Feedback System. Nodus Labs. [https://noduslabs.com/featured/fractal-variability-feedback-system/](https://noduslabs.com/featured/fractal-variability-feedback-system/)
+
 ### Author
 
-Created by [Dmitry Paranyushkin](https://deemeetree.com) in 2020-2021
+Created by [Dmitry Paranyushkin](https://deemeetree.com) in 2020-2026
 
 ### GPL License
 
