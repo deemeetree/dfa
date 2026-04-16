@@ -35,15 +35,16 @@ let dfa = new DFA(time_series);
 let alpha_component = dfa.compute();
 
 // Or with custom parameters:
-// dfa.compute(minWindow = 4, expStep = 0.25, step = 2, shortMax = 16, longMin = 16, longMaxFraction = 0.25)
+// dfa.compute(minWindow, expStep, step, shortMax, longMin, longMaxFraction, level)
 
 // where:
-// minWindow is the minimum window size for scales
-// expStep is the step for increasing scales for global alpha
-// step is the step for increasing scales for short alpha1 and long alpha2
-// shortMax is the maximum window size for short alpha1
-// longMin is the minimum window size for long alpha2
-// longMaxFraction is the maximum fraction of the series length for long alpha2
+// minWindow is the minimum window size for scales (default: 4)
+// expStep is the step for increasing scales for global alpha (default: 0.25)
+// step is the step for increasing scales for short alpha1 and long alpha2 (default: 2)
+// shortMax is the maximum window size for short alpha1 (default: 16)
+// longMin is the minimum window size for long alpha2 (default: 16)
+// longMaxFraction is the maximum fraction of the series length for long alpha2 (default: 0.25)
+// level is the threshold sensitivity: "relaxed", "moderate", or "strict" (default: "moderate")
 
 console.log(alpha_component);
 ```
@@ -79,9 +80,20 @@ alpha_component = {
 	scalesAlpha1: [...], // Window sizes included in the α₁ fit
 	scalesAlpha2: [...], // Window sizes included in the α₂ fit
 
-	// Scoring
-	alphaScore: alphaScore, // Categorical: "recovering"/"regular"/"resilient"/"tension"
-	alphaScoreNumeric: score, // Numeric: 0-100 (distance from 1.0)
+	// Labels (DFA interpretation)
+	alphaLabel: "fractal", // "random" / "regular" / "fractal" / "complex"
+	alpha1Label: "fractal", // Same labels for α₁ (null when alpha1 is null)
+	alpha2Label: "regular", // Same labels for α₂ (null when alpha2 is null)
+
+	// Scoring — legacy HRV labels (same thresholds as labels, different names)
+	alphaScore: "resilient", // Legacy: "recovering" / "regular" / "resilient" / "tension"
+	alpha1Score: "resilient", // Same for α₁ (null when alpha1 is null)
+	alpha2Score: "regular", // Same for α₂ (null when alpha2 is null)
+
+	// Scoring — numeric
+	alphaScoreNumeric: 95, // 0–100 for global α (distance from 1.0)
+	alpha1ScoreNumeric: 90, // 0–100 for α₁ (null when alpha1 is null)
+	alpha2ScoreNumeric: 70, // 0–100 for α₂ (null when alpha2 is null)
 };
 ```
 
@@ -148,12 +160,29 @@ It is based on the relationship between the length of an observation and cumulat
    - **Global α**: Fit across all valid scales
    - **α₁**: Short-term correlations (scales 4-16)
    - **α₂**: Long-term correlations (scales 16+, with ≥4 segments)
-10. **Interpretation**:
-    - α ≈ 0.5: Uncorrelated (white noise)
-    - α ≈ 1.0: Scale-invariant, fractal-like (1/f noise)
-    - α ≈ 1.5: Brownian motion
-    - α < 0.5: Anti-correlated
-    - α > 1.0: Strong correlations
+10. **Interpretation** (see Scoring section below)
+
+### Scoring and Interpretation
+
+The output includes three types of scores for each alpha (global, α₁, α₂):
+
+**`alphaLabel` / `alpha1Label` / `alpha2Label`** — DFA interpretation labels.
+**`alphaScore` / `alpha1Score` / `alpha2Score`** — Legacy HRV-specific labels (same thresholds, different names).
+
+Both use the same thresholds controlled by the `level` parameter. The `alphaScore` names were designed for HRV biofeedback contexts where α ≈ 1.0 indicates a healthy, resilient heart. The `alphaLabel` names are general-purpose DFA terminology suitable for any time series.
+
+| | `"moderate"` (default) | `"relaxed"` | `"strict"` |
+|---|---|---|---|
+| **random** / recovering | α ≤ 0.55 | α ≤ 0.65 | α ≤ 0.50 |
+| **regular** / regular | 0.55 < α < 0.95 | 0.65 < α < 0.90 | 0.50 < α < 0.98 |
+| **fractal** / resilient | 0.95 ≤ α ≤ 1.05 | 0.90 ≤ α ≤ 1.10 | 0.98 ≤ α ≤ 1.02 |
+| **complex** / tension | α > 1.05 | α > 1.10 | α > 1.02 |
+
+- **`"relaxed"`** — wider "fractal" zone (0.90–1.10), useful for noisy real-world data or short recordings where alpha estimates have higher variance.
+- **`"moderate"`** — balanced thresholds (0.95–1.05), suitable for most applications.
+- **`"strict"`** — narrow "fractal" zone (0.98–1.02), for research contexts requiring precise classification or long, clean recordings.
+
+**`alphaScoreNumeric` / `alpha1ScoreNumeric` / `alpha2ScoreNumeric`** — Numeric score from 0 to 100, where 100 means α = 1.0 (perfect fractal scaling) and 0 means α is ≥1.0 away from the ideal. Not affected by the `level` parameter.
 
 ### References
 

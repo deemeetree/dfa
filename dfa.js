@@ -263,6 +263,20 @@ let DFA = (function () {
 		return Math.max(0, (1.0 - dev) * 100);
 	}
 
+	function getThresholds(level) {
+		if (level === "relaxed") return [0.65, 0.9, 1.1];
+		if (level === "strict") return [0.5, 0.98, 1.02];
+		return [0.55, 0.95, 1.05]; // moderate (default)
+	}
+
+	function alphaToLabel(alpha, level = "moderate") {
+		const t = getThresholds(level);
+		if (alpha <= t[0]) return "random";
+		if (alpha < t[1]) return "regular";
+		if (alpha <= t[2]) return "fractal";
+		return "complex";
+	}
+
 	// DFA class definition
 	let DFA = function (x) {
 		if (!(this instanceof DFA)) {
@@ -345,23 +359,11 @@ let DFA = (function () {
 	};
 
 	DFA.prototype.alphaScore = function (alpha, level = "moderate") {
-		// Legacy categorical score - kept for compatibility
-		let thresholds = [0.55, 0.95, 1.05];
-		if (level == "relaxed") {
-			thresholds = [0.65, 0.9, 1.1];
-		} else if (level == "strict") {
-			thresholds = [0.5, 0.98, 1.02];
-		}
-
-		if (alpha <= thresholds[0]) {
-			return "recovering";
-		} else if (alpha > thresholds[0] && alpha < thresholds[1]) {
-			return "regular";
-		} else if (alpha >= thresholds[1] && alpha <= thresholds[2]) {
-			return "resilient";
-		} else if (alpha > thresholds[2]) {
-			return "tension";
-		}
+		const t = getThresholds(level);
+		if (alpha <= t[0]) return "recovering";
+		if (alpha < t[1]) return "regular";
+		if (alpha <= t[2]) return "resilient";
+		return "tension";
 	};
 
 	DFA.prototype.compute = function (
@@ -370,7 +372,8 @@ let DFA = (function () {
 		step = 2, // linear increment for α1 and for short series fallback
 		shortMax = 16,
 		longMin = 16,
-		longMaxFraction = 0.25
+		longMaxFraction = 0.25,
+		level = "moderate" // threshold sensitivity: "relaxed", "moderate", or "strict"
 	) {
 		const rr = this.x;
 		const N = rr.length;
@@ -393,9 +396,17 @@ let DFA = (function () {
 				fluctuations_log: [], // Legacy alias
 				coefficients: { slope: 0, intercept: 0 },
 				alpha: 1.0,
-				alphaScore: 0,
+				alphaScore: "resilient",
+				alphaScoreNumeric: 100,
+				alphaLabel: "fractal",
 				alpha1: null,
+				alpha1Score: null,
+				alpha1ScoreNumeric: null,
+				alpha1Label: null,
 				alpha2: null,
+				alpha2Score: null,
+				alpha2ScoreNumeric: null,
+				alpha2Label: null,
 				alpha1Range: null,
 				alpha2Range: null,
 			};
@@ -456,7 +467,7 @@ let DFA = (function () {
 		const coefficients = linearRegression(xAll, yAll);
 		const alpha = coefficients.slope;
 		const alphaScoreVal = alphaScoreNumeric(alpha);
-		const alphaScoreCat = this.alphaScore(alpha); // Legacy categorical score
+		const alphaScoreCat = this.alphaScore(alpha, level);
 
 		// α1 (minWindow..shortMax)
 		const {
@@ -507,10 +518,17 @@ let DFA = (function () {
 			fluctuations_log: fluctuationsLog, // Legacy alias
 			coefficients,
 			alpha,
-			alphaScore: alphaScoreCat, // Legacy categorical
-			alphaScoreNumeric: alphaScoreVal, // New numeric score
+			alphaScore: alphaScoreCat,
+			alphaScoreNumeric: alphaScoreVal,
+			alphaLabel: alphaToLabel(alpha, level),
 			alpha1,
+			alpha1Score: alpha1 !== null ? this.alphaScore(alpha1, level) : null,
+			alpha1ScoreNumeric: alpha1 !== null ? alphaScoreNumeric(alpha1) : null,
+			alpha1Label: alpha1 !== null ? alphaToLabel(alpha1, level) : null,
 			alpha2,
+			alpha2Score: alpha2 !== null ? this.alphaScore(alpha2, level) : null,
+			alpha2ScoreNumeric: alpha2 !== null ? alphaScoreNumeric(alpha2) : null,
+			alpha2Label: alpha2 !== null ? alphaToLabel(alpha2, level) : null,
 			alpha1Range,
 			alpha2Range,
 		};
