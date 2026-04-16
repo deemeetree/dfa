@@ -1,9 +1,26 @@
 {
 	"name": "dfa-variability",
-	"description": "Detrended Fluctuation Analysis for Javascript measuring time series variability.",
+	"description": "Detrended Fluctuation Analysis (DFA) for JavaScript — measure fractal scaling, Hurst exponent, long-range correlations, 1/f noise, and HRV variability in time series data. Computes alpha, alpha1, alpha2, SDNN, RMSSD, and PNN50.",
+	"keywords": [
+		"detrended-fluctuation-analysis",
+		"dfa",
+		"time-series",
+		"fractal",
+		"hurst-exponent",
+		"long-range-correlation",
+		"1/f-noise",
+		"heart-rate-variability",
+		"hrv",
+		"scaling-exponent",
+		"alpha-exponent",
+		"sdnn",
+		"rmssd",
+		"signal-processing",
+		"power-law"
+	],
 	"main": "./dfa",
 	"author": "Dmitry Paranyushkin <contact@noduslabs.com> (http://noduslabs.com)",
-	"version": "2.0.9",
+	"version": "2.1.0",
 	"repository": {
 		"type": "git",
 		"url": "git+ssh://git@github.com/deemeetree/dfa.git"
