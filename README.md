@@ -119,6 +119,67 @@ The crossover point between α₁ and α₂ is at scale 16 by default (both rang
 
 For short series, rely on the global `alpha` and `alpha1`. For long series (500+ points), all three exponents are typically available.
 
+### Multifractal DFA (MFDFA)
+
+Standard `compute()` characterises a signal with a single scaling exponent — it assumes the same fractal behaviour governs both small and large fluctuations (a _monofractal_). Many real signals are **multifractal**: their scaling depends on the magnitude of fluctuations. `computeMultifractal()` captures this by generalising the fluctuation function with a **q-order parameter**.
+
+```js
+let dfa = new DFA(time_series);
+
+let mf = dfa.computeMultifractal({
+	qMin: -5, // smallest q (emphasises small fluctuations)
+	qMax: 5, // largest q (emphasises large fluctuations)
+	qStep: 0.5, // step between q values
+});
+```
+
+> **Note:** the base of the logarithm does _not_ control multifractality. α is the slope of `log F(s)` vs `log s`, and changing the log base scales both axes equally, leaving the slope unchanged. The q parameter — not the log base — is what generalises DFA to the multifractal case.
+
+A single call sweeps the whole q range and returns the generalised Hurst exponent for each q. Mirroring the monofractal `compute()`, three h(q) curves are returned — a **global** one plus **α₁** (short-scale) and **α₂** (long-scale) curves:
+
+```js
+{
+	q: [-5, -4.5, ..., 0, ..., 4.5, 5],       // the q values swept
+
+	hq: [...],         // GLOBAL h(q) — fitted across all scales, one per q
+	hq1: [...],        // α₁ h(q)    — fitted over short scales (4–16), one per q
+	hq2: [...],        // α₂ h(q)    — fitted over long scales (16–N/4); null where insufficient
+
+	tau: [...],        // mass exponent τ(q) = q·h(q) − 1 (from the global curve)
+	alpha: [...],      // Hölder exponent α / singularity strength (from the global curve)
+	falpha: [...],     // singularity spectrum f(α) (from the global curve)
+
+	hMin: 0.55,        // global h(q) at qMax — scaling of large fluctuations
+	hMax: 0.92,        // global h(q) at qMin — scaling of small fluctuations
+	multifractalWidth: 0.37, // width of the GLOBAL curve (hMax − hMin)
+	width1: 0.87,      // width of the α₁ curve
+	width2: 0.26,      // width of the α₂ curve
+
+	monofractal: {     // h(2) per curve — matches compute() alpha/alpha1/alpha2
+		alpha: 0.71, alpha1: 0.68, alpha2: 0.73,
+	},
+	ranges: {          // scale ranges each curve was fitted over
+		global: [4, N], alpha1: [4, 16], alpha2: [16, N/4],
+	},
+
+	scales: [...],            // window sizes used (same as compute())
+	fluctuationsByQ: [[...]], // F_q(s) per q, for plotting/debugging
+	lengthOfData: N,
+}
+```
+
+**How to read it:**
+
+- `q`, `hq`, `hq1`, `hq2`, `tau`, `alpha`, `falpha` are all **index-aligned** — `hq[i]` is the global Hurst exponent for `q[i]`, `hq1[i]` the short-scale one, `hq2[i]` the long-scale one.
+- **Three curves, same meaning as monofractal α/α₁/α₂:** `hq` is the global multifractal scaling, `hq1` captures fast/short-scale dynamics, `hq2` slow/long-scale dynamics. Comparing their widths (`multifractalWidth`, `width1`, `width2`) shows whether the multifractality lives mainly in the fast or the slow part of the signal.
+- Plot any curve against `q`: a roughly **flat** line means **monofractal** behaviour in that range; a **downward slope** means **multifractal**.
+- Negative q emphasise small fluctuations, positive q emphasise large ones. `q = 2` reproduces standard DFA, so `monofractal.alpha`/`alpha1`/`alpha2` match `compute().alpha`/`alpha1`/`alpha2` exactly. `q = 0` uses a logarithmic-averaging special case internally (the `1/q` form is undefined there).
+- `multifractalWidth` (= `hMax − hMin`) is the single-number summary most often reported: ≈ 0 indicates monofractal, larger values indicate a richer multifractal structure.
+- `alpha`/`falpha` are the standard **multifractal spectrum** (derived from the global curve) — for a multifractal signal, plotting `falpha` against `alpha` gives an inverted-parabola shape.
+- **`hq2`/`width2` are `null` for short series** (same N ≥ ~256 requirement as `compute().alpha2`). Fall back to `hq` and `hq1` in that case.
+
+**Typical parameter values:** q in the range **−5 to +5** (sometimes −10 to +10), with a step of 0.25, 0.5, or 1. `computeMultifractal()` accepts the same scale-generation parameters as `compute()` (`minWindow`, `step`, `expStep`, `shortMax`, `longMin`, `longMaxFraction`) and reuses the same scales and the same α₁/α₂ fit ranges, so the q = 2 curves match the monofractal `alpha`/`alpha1`/`alpha2` exactly. `compute()` itself is unchanged and remains the q = 2 special case.
+
 ### Concept
 
 DFA is used to measure the behaviour of a time series.
