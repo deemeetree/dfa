@@ -277,6 +277,45 @@ This lets you see **where** the multifractal structure lives: for example, a lar
 
 All shape metrics are `null` for curves too short to fit (fewer than 3 valid q points). The α₂ shape fields are also `null` for short series, the same way `hq2`/`width2` are.
 
+#### Interpreting the values
+
+**`hCurveSlope`** — overall direction of `h(q)` (small → large fluctuations). For most real signals it is negative, because large fluctuations scale with a smaller exponent than small ones.
+
+| `hCurveSlope`             | Shape                          | Interpretation                                                                  |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
+| `≈ 0` (e.g. −0.02 to 0.02)| flat `h(q)`                    | near-**monofractal** — small and large fluctuations scale the same way          |
+| **mildly negative** (~ −0.05) | gently descending          | weak multifractality — modest difference between small and large fluctuations   |
+| **strongly negative** (≲ −0.1)| steeply descending         | strong multifractality — large fluctuations far less persistent than small ones |
+| **positive** (> 0)        | ascending                      | unusual — large fluctuations _more_ persistent than small; check for outliers / nonstationarity / preprocessing |
+
+Magnitudes are rules of thumb, not hard cutoffs — they depend on the data, its length, and preprocessing. Compare slopes **within the same setup** (same asset, timeframe, pipeline), not across unrelated datasets.
+
+**`hCurveCurvature`** — the bend of the curve (its second derivative).
+
+| `hCurveCurvature`     | Shape          | Interpretation                                                                 |
+| --------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `≈ 0`                 | straight line  | scaling changes uniformly with q — a simple, linear multifractal spectrum      |
+| **> 0**               | **U-shape** (convex)   | h drops fastest for mid-range q, flattening at the extremes               |
+| **< 0**               | **inverted-U** (concave) | h is flat in the middle and bends down at the extremes — often points to asymmetry between very small and very large fluctuations |
+
+**`hCurveNonlinearity`** — RMS deviation from a straight line; how much the slope alone misses.
+
+| `hCurveNonlinearity`  | Interpretation                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `≈ 0`                 | the curve is essentially a straight line — slope + width describe it fully                     |
+| **small but non-zero**| mild curvature or asymmetry in the spectrum                                                    |
+| **large**             | rich, structured spectrum (kinks, asymmetry) — read the full `hq` curve, don't rely on summaries |
+
+**`hMinLocation`** — the q where `h(q)` (persistence) is lowest.
+
+| `hMinLocation`        | Interpretation                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `= qMax` (e.g. 5)     | typical monotone curve — large fluctuations are the least persistent                          |
+| **interior q** (between qMin and qMax) | non-monotonic spectrum — a specific fluctuation magnitude scales differently; worth inspecting |
+| `= qMin` (e.g. −5)    | unusual — small fluctuations least persistent; check the signal and preprocessing             |
+
+**Comparing curves:** the same reading applies to the `1` (α₁, short-scale) and `2` (α₂, long-scale) variants. A steep `hCurveSlope1` with a flat `hCurveSlope2`, for instance, means the multifractality is concentrated in the fast dynamics while the slow trend stays monofractal.
+
 ### Interpreting MFDFA in practice
 
 - **DFA alpha** tells you whether the signal has _one overall_ fractal scaling pattern.
