@@ -170,6 +170,101 @@ let DFA = (function () {
 		return { slope, intercept };
 	}
 
+	function fitQuadratic(x, y) {
+		// Least-squares fit y = a + b*x + c*x^2 via 3x3 normal equations.
+		const n = x.length;
+		if (n < 3) return null;
+		let S0 = n,
+			S1 = 0,
+			S2 = 0,
+			S3 = 0,
+			S4 = 0,
+			T0 = 0,
+			T1 = 0,
+			T2 = 0;
+		for (let i = 0; i < n; i++) {
+			const xi = x[i],
+				yi = y[i],
+				x2 = xi * xi;
+			S1 += xi;
+			S2 += x2;
+			S3 += x2 * xi;
+			S4 += x2 * x2;
+			T0 += yi;
+			T1 += xi * yi;
+			T2 += x2 * yi;
+		}
+		// Augmented matrix for Gaussian elimination with partial pivoting.
+		const m = [
+			[S0, S1, S2, T0],
+			[S1, S2, S3, T1],
+			[S2, S3, S4, T2],
+		];
+		for (let col = 0; col < 3; col++) {
+			let piv = col;
+			for (let r = col + 1; r < 3; r++)
+				if (Math.abs(m[r][col]) > Math.abs(m[piv][col])) piv = r;
+			if (Math.abs(m[piv][col]) < 1e-12) return null; // singular
+			const tmp = m[col];
+			m[col] = m[piv];
+			m[piv] = tmp;
+			for (let r = 0; r < 3; r++) {
+				if (r === col) continue;
+				const f = m[r][col] / m[col][col];
+				for (let k = col; k < 4; k++) m[r][k] -= f * m[col][k];
+			}
+		}
+		return { a: m[0][3] / m[0][0], b: m[1][3] / m[1][1], c: m[2][3] / m[2][2] };
+	}
+
+	// Characterise the shape of an h(q) curve: overall direction, curvature
+	// (U vs inverted-U), deviation from a straight line, and where h is lowest.
+	function analyzeHCurve(qValues, hq) {
+		const xs = [],
+			ys = [];
+		for (let i = 0; i < hq.length; i++) {
+			if (hq[i] !== null && hq[i] !== undefined) {
+				xs.push(qValues[i]);
+				ys.push(hq[i]);
+			}
+		}
+		const empty = {
+			slope: null,
+			curvature: null,
+			nonlinearity: null,
+			hMinLocation: null,
+		};
+		if (xs.length < 3) return empty;
+
+		// General direction: slope of the best-fit straight line through h(q).
+		const { slope, intercept } = linearRegression(xs, ys);
+
+		// Curvature: 2c from the quadratic fit (the 2nd derivative).
+		// > 0 → U-shape (convex), < 0 → inverted-U (concave).
+		const quad = fitQuadratic(xs, ys);
+		const curvature = quad ? 2 * quad.c : null;
+
+		// Nonlinearity: RMS of residuals around the straight-line fit.
+		let ss = 0;
+		for (let i = 0; i < xs.length; i++) {
+			const r = ys[i] - (intercept + slope * xs[i]);
+			ss += r * r;
+		}
+		const nonlinearity = Math.sqrt(ss / xs.length);
+
+		// hMinLocation: the q where h(q) is smallest (least persistent).
+		let minH = ys[0],
+			hMinLocation = xs[0];
+		for (let i = 1; i < xs.length; i++) {
+			if (ys[i] < minH) {
+				minH = ys[i];
+				hMinLocation = xs[i];
+			}
+		}
+
+		return { slope, curvature, nonlinearity, hMinLocation };
+	}
+
 	function detrendLinear(ySeg) {
 		// returns fitted values for the segment
 		const n = ySeg.length;
@@ -613,6 +708,18 @@ let DFA = (function () {
 				multifractalWidth: null,
 				width1: null,
 				width2: null,
+				hCurveSlope: null,
+				hCurveCurvature: null,
+				hCurveNonlinearity: null,
+				hMinLocation: null,
+				hCurveSlope1: null,
+				hCurveCurvature1: null,
+				hCurveNonlinearity1: null,
+				hMinLocation1: null,
+				hCurveSlope2: null,
+				hCurveCurvature2: null,
+				hCurveNonlinearity2: null,
+				hMinLocation2: null,
 				monofractal: { alpha: null, alpha1: null, alpha2: null },
 				ranges: { global: null, alpha1: null, alpha2: null },
 				scales: [],
@@ -709,6 +816,12 @@ let DFA = (function () {
 		const width1 = widthOf(hq1);
 		const width2 = widthOf(hq2);
 
+		// Shape of each h(q) curve: direction, curvature, nonlinearity,
+		// and the q at which persistence is lowest.
+		const shape = analyzeHCurve(qValues, hq);
+		const shape1 = analyzeHCurve(qValues, hq1);
+		const shape2 = analyzeHCurve(qValues, hq2);
+
 		// h(2) for each curve — should match compute()'s alpha / alpha1 / alpha2
 		// (a built-in sanity check that the multifractal path is consistent).
 		const i2 = qValues.indexOf(2);
@@ -728,9 +841,24 @@ let DFA = (function () {
 			falpha, // singularity spectrum f(α) from the global curve
 			hMin,
 			hMax,
-			multifractalWidth, // width of the global h(q) curve
+			multifractalWidth, // width of the global h(q) curve (extremes)
 			width1, // width of the α₁ h(q) curve
 			width2, // width of the α₂ h(q) curve
+			// shape of the global h(q) curve
+			hCurveSlope: shape.slope, // general direction of h(q) vs q
+			hCurveCurvature: shape.curvature, // >0 U-shape, <0 inverted-U
+			hCurveNonlinearity: shape.nonlinearity, // RMS deviation from a straight line
+			hMinLocation: shape.hMinLocation, // q where h(q) (persistence) is lowest
+			// shape of the α₁ (short-scale) h(q) curve
+			hCurveSlope1: shape1.slope,
+			hCurveCurvature1: shape1.curvature,
+			hCurveNonlinearity1: shape1.nonlinearity,
+			hMinLocation1: shape1.hMinLocation,
+			// shape of the α₂ (long-scale) h(q) curve — null where insufficient
+			hCurveSlope2: shape2.slope,
+			hCurveCurvature2: shape2.curvature,
+			hCurveNonlinearity2: shape2.nonlinearity,
+			hMinLocation2: shape2.hMinLocation,
 			monofractal, // h(2) per range; matches compute() alpha/alpha1/alpha2
 			ranges: {
 				global: [scales[0], scales[scales.length - 1]],

@@ -238,6 +238,45 @@ width = 0.4
 
 Both signals have the **same** `multifractalWidth`, but very different internal dynamics. So treat `multifractalWidth` as a useful summary, and read the full `hq` curve when you need the actual structure.
 
+#### Curve-shape metrics
+
+Because the width alone hides the shape (as shown above), the result also includes four numbers that summarise the **shape** of the global `hq` curve. They are derived from the global `q → hq` curve:
+
+```js
+result.multifractalWidth   // difference between the extremes (hMax − hMin)
+result.hCurveSlope         // general direction of h(q) vs q
+result.hCurveCurvature     // U-shape vs inverted-U shape
+result.hCurveNonlinearity  // how much the curve deviates from a straight line
+result.hMinLocation        // the q where persistence (h) is lowest
+```
+
+What each one means:
+
+- **`hCurveSlope`** — the slope of the best-fit straight line through `h(q)`. It captures the **overall direction**. Almost always negative (h decreases as q increases); a steeper negative slope means a stronger overall difference between small- and large-fluctuation scaling. A slope near 0 means a flat, near-monofractal curve.
+- **`hCurveCurvature`** — the second derivative (`2c`) of a quadratic fit to `h(q)`. It tells you the **bend** of the curve: **> 0** is a **U-shape** (convex), **< 0** is an **inverted-U** (concave), and **≈ 0** is roughly straight. This separates the two example signals above that share the same width.
+- **`hCurveNonlinearity`** — the RMS deviation of `h(q)` from the straight-line fit. **0** means a perfectly straight curve; larger values mean the multifractal spectrum has real structure (bends, kinks, asymmetry) that the slope and width don't capture.
+- **`hMinLocation`** — the q value at which `h(q)` is smallest, i.e. **where persistence is lowest**. For a monotonically decreasing curve this is simply `qMax`; an interior minimum signals a more complex, non-monotonic spectrum.
+
+The four fields above describe the **global** curve. The same four metrics are also provided for the **α₁** (short-scale) and **α₂** (long-scale) curves, using the `1`/`2` suffix (the same convention as `width1`/`width2`):
+
+```js
+// α₁ (short-scale) curve shape
+result.hCurveSlope1
+result.hCurveCurvature1
+result.hCurveNonlinearity1
+result.hMinLocation1
+
+// α₂ (long-scale) curve shape
+result.hCurveSlope2
+result.hCurveCurvature2
+result.hCurveNonlinearity2
+result.hMinLocation2
+```
+
+This lets you see **where** the multifractal structure lives: for example, a large `hCurveNonlinearity1` with a near-zero `hCurveNonlinearity2` means the rich multifractal behaviour is concentrated in the fast/short-scale dynamics, while the slow/long-scale part stays close to monofractal.
+
+All shape metrics are `null` for curves too short to fit (fewer than 3 valid q points). The α₂ shape fields are also `null` for short series, the same way `hq2`/`width2` are.
+
 ### Interpreting MFDFA in practice
 
 - **DFA alpha** tells you whether the signal has _one overall_ fractal scaling pattern.
@@ -287,10 +326,16 @@ A rolling increase in `multifractalWidth` can indicate that the market is becomi
 result.monofractal.alpha   // h(2), closest to standard DFA alpha
 result.hq                  // full q → h(q) curve
 result.multifractalWidth   // summary width between q extremes
+result.hCurveSlope         // general direction of the h(q) curve
+result.hCurveCurvature     // U-shape (>0) vs inverted-U (<0)
+result.hCurveNonlinearity  // deviation from a straight line
+result.hMinLocation        // q where persistence is lowest
 result.hq1                 // short-scale h(q)
 result.hq2                 // long-scale h(q), if available
 result.width1              // short-scale multifractal width
 result.width2              // long-scale multifractal width, if available
+result.hCurveSlope1        // α₁ curve shape (also Curvature1/Nonlinearity1/hMinLocation1)
+result.hCurveSlope2        // α₂ curve shape (also Curvature2/Nonlinearity2/hMinLocation2)
 result.alpha               // singularity strengths for f(alpha)
 result.falpha              // multifractal singularity spectrum
 ```
