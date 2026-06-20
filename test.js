@@ -40,3 +40,50 @@ randomArrays.forEach((data) => {
 const after = Date.now();
 
 console.log(`Time taken: ${after - before}ms`);
+
+// ── Multifractal DFA (MFDFA) ──
+console.log("\n=== Multifractal DFA ===");
+
+// Longer correlated signal so all three h(q) curves are available.
+let acc = 0;
+let seed = 42;
+const mfData = Array.from({ length: 4000 }, () => {
+	seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+	acc += seed / 0x7fffffff - 0.5;
+	return acc;
+});
+
+const mfDfa = new DFA(mfData);
+const mono = mfDfa.compute();
+const mf = mfDfa.computeMultifractal({ qMin: -5, qMax: 5, qStep: 1 });
+
+console.log(`N=${mf.lengthOfData}, q values:`, mf.q);
+console.log(
+	"global h(q):",
+	mf.hq.map((v) => (v === null ? "null" : v.toFixed(3)))
+);
+console.log(
+	"alpha1 h(q):",
+	mf.hq1.map((v) => (v === null ? "null" : v.toFixed(3)))
+);
+console.log(
+	"alpha2 h(q):",
+	mf.hq2.map((v) => (v === null ? "null" : v.toFixed(3)))
+);
+console.log(
+	`widths — global: ${mf.multifractalWidth.toFixed(
+		3
+	)}, alpha1: ${mf.width1.toFixed(3)}, alpha2: ${mf.width2.toFixed(3)}`
+);
+
+// q=2 must reproduce the monofractal compute() result exactly.
+const close = (a, b) => Math.abs(a - b) < 1e-9;
+const ok =
+	close(mono.alpha, mf.monofractal.alpha) &&
+	close(mono.alpha1, mf.monofractal.alpha1) &&
+	close(mono.alpha2, mf.monofractal.alpha2);
+console.log(
+	`q=2 sanity check (matches compute alpha/alpha1/alpha2): ${
+		ok ? "PASS" : "FAIL"
+	}`
+);

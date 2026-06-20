@@ -181,7 +181,7 @@ let DFA = (function () {
 		return trend;
 	}
 
-	function fluctuationForScale(profile, s, minWindow = 4) {
+	function fluctuationForScale(profile, s, minWindow = 4, q = 2) {
 		const n = profile.length;
 		const numSegments = Math.floor(n / s);
 		if (numSegments <= 0) return { F: 0, segments: 0 };
@@ -220,13 +220,31 @@ let DFA = (function () {
 			}
 		}
 
-		// canonical DFA aggregation: F(s) = sqrt( mean( RMS^2 ) )
 		if (rms.length === 0) return { F: 0, segments: numSegments };
-		let meanSq = 0;
-		for (let i = 0; i < rms.length; i++) meanSq += rms[i] * rms[i];
-		meanSq /= rms.length;
 
-		return { F: Math.sqrt(meanSq), segments: numSegments };
+		// q-th order fluctuation function (MFDFA generalization).
+		// q === 2 reproduces canonical DFA: F(s) = sqrt( mean( RMS^2 ) ).
+		// q === 0 uses the logarithmic-averaging special case (1/q is undefined).
+		let F;
+		if (Math.abs(q) < 1e-10) {
+			// F_0(s) = exp( (1/2N_s) * sum( ln( RMS^2 ) ) )
+			let sumLog = 0;
+			for (let i = 0; i < rms.length; i++) {
+				const sq = rms[i] * rms[i];
+				// guard against log(0) for degenerate (perfectly-fit) segments
+				sumLog += Math.log(sq > 0 ? sq : Number.MIN_VALUE);
+			}
+			F = Math.exp(sumLog / (2 * rms.length));
+		} else {
+			// F_q(s) = ( (1/N_s) * sum( (RMS^2)^(q/2) ) )^(1/q)
+			let sumPow = 0;
+			for (let i = 0; i < rms.length; i++) {
+				sumPow += Math.pow(rms[i] * rms[i], q / 2);
+			}
+			F = Math.pow(sumPow / rms.length, 1 / q);
+		}
+
+		return { F, segments: numSegments };
 	}
 
 	function fitAlphaInRange(
@@ -553,6 +571,175 @@ let DFA = (function () {
 			dfa2Label: alpha2 !== null ? alphaToDfaLabel(alpha2, level) : null,
 			alpha1Range,
 			alpha2Range,
+		};
+	};
+
+	// Multifractal DFA (MFDFA).
+	// Sweeps the q-order parameter to obtain the generalized Hurst exponent h(q),
+	// the mass exponent tau(q), and the singularity spectrum f(alpha).
+	// q === 2 reproduces the monofractal `compute()` alpha (returned as hq2).
+	DFA.prototype.computeMultifractal = function ({
+		qMin = -5,
+		qMax = 5,
+		qStep = 0.5,
+		minWindow = 4,
+		expStep = 0.25,
+		step = 2,
+		shortMax = 16,
+		longMin = 16,
+		longMaxFraction = 0.25,
+	} = {}) {
+		const rr = this.x;
+		const N = rr.length;
+
+		// Build the q list (inclusive of qMax up to floating-point tolerance).
+		const qValues = [];
+		for (let q = qMin; q <= qMax + 1e-9; q += qStep) {
+			// snap tiny floating-point drift so e.g. q=0 is exactly 0
+			qValues.push(Math.abs(q) < 1e-10 ? 0 : Math.round(q * 1e6) / 1e6);
+		}
+
+		if (N <= minWindow) {
+			return {
+				q: qValues,
+				hq: qValues.map(() => null),
+				hq1: qValues.map(() => null),
+				hq2: qValues.map(() => null),
+				tau: qValues.map(() => null),
+				alpha: qValues.map(() => null),
+				falpha: qValues.map(() => null),
+				hMin: null,
+				hMax: null,
+				multifractalWidth: null,
+				width1: null,
+				width2: null,
+				monofractal: { alpha: null, alpha1: null, alpha2: null },
+				ranges: { global: null, alpha1: null, alpha2: null },
+				scales: [],
+				fluctuationsByQ: qValues.map(() => []),
+				lengthOfData: N,
+			};
+		}
+
+		// Same integrated profile and scales as the monofractal path.
+		const { profile } = integratedProfile(rr);
+		const scales = generateScales(N, {
+			minWindow,
+			step,
+			expStep,
+			shortMax,
+			longMin,
+			longMaxFraction,
+		});
+		const scalesLog = scales.map((s) => Math.log(s));
+
+		// Fit ranges mirror compute(): global (all scales), α₁ (short), α₂ (long).
+		const alpha1Range = [minWindow, Math.min(shortMax, N)];
+		const alpha2Range = [16, Math.floor(N * 0.25)];
+
+		const hq = []; // global h(q): fitted across all valid scales
+		const hq1 = []; // α₁ h(q): fitted over short scales (4..shortMax)
+		const hq2 = []; // α₂ h(q): fitted over long scales (16..N/4)
+		const fluctuationsByQ = [];
+
+		for (let qi = 0; qi < qValues.length; qi++) {
+			const q = qValues[qi];
+			const fluct = new Array(scales.length);
+			const fluctLog = new Array(scales.length).fill(null);
+			const segs = new Array(scales.length);
+			const xs = [];
+			const ys = [];
+			for (let i = 0; i < scales.length; i++) {
+				const { F, segments } = fluctuationForScale(
+					profile,
+					scales[i],
+					minWindow,
+					q
+				);
+				fluct[i] = F;
+				segs[i] = segments;
+				if (F > 0) {
+					fluctLog[i] = Math.log(F);
+					xs.push(scalesLog[i]);
+					ys.push(fluctLog[i]);
+				}
+			}
+			fluctuationsByQ.push(fluct);
+
+			// global fit
+			hq.push(xs.length >= 3 ? linearRegression(xs, ys).slope : null);
+
+			// α₁ and α₂ fits via the same range-restricted helper compute() uses
+			const logs = { scale: scalesLog, fluct: fluctLog };
+			hq1.push(fitAlphaInRange(scales, logs, alpha1Range, null, 0).alpha);
+			hq2.push(fitAlphaInRange(scales, logs, alpha2Range, segs, 4).alpha);
+		}
+
+		// tau(q) = q * h(q) - 1
+		const tau = qValues.map((q, i) => (hq[i] !== null ? q * hq[i] - 1 : null));
+
+		// Singularity spectrum via numerical Legendre transform of tau(q):
+		//   alpha = d(tau)/dq ,  f(alpha) = q * alpha - tau(q)
+		const alpha = new Array(qValues.length).fill(null);
+		const falpha = new Array(qValues.length).fill(null);
+		for (let i = 0; i < qValues.length; i++) {
+			if (tau[i] === null) continue;
+			// central difference on q where neighbours are available, else one-sided
+			let lo = i,
+				hi = i;
+			if (i > 0 && tau[i - 1] !== null) lo = i - 1;
+			if (i < qValues.length - 1 && tau[i + 1] !== null) hi = i + 1;
+			if (hi === lo) continue; // no usable neighbour → can't differentiate
+			const dAlpha =
+				(tau[hi] - tau[lo]) / (qValues[hi] - qValues[lo]);
+			alpha[i] = dAlpha;
+			falpha[i] = qValues[i] * dAlpha - tau[i];
+		}
+
+		// Multifractal width = spread of h(q). h(q) decreases with q, so for the
+		// global curve hMax sits at qMin and hMin at qMax. ≈0 → monofractal.
+		const widthOf = (arr) => {
+			const v = arr.filter((h) => h !== null);
+			return v.length ? Math.max(...v) - Math.min(...v) : null;
+		};
+		const validH = hq.filter((h) => h !== null);
+		const hMax = validH.length ? Math.max(...validH) : null;
+		const hMin = validH.length ? Math.min(...validH) : null;
+		const multifractalWidth = widthOf(hq);
+		const width1 = widthOf(hq1);
+		const width2 = widthOf(hq2);
+
+		// h(2) for each curve — should match compute()'s alpha / alpha1 / alpha2
+		// (a built-in sanity check that the multifractal path is consistent).
+		const i2 = qValues.indexOf(2);
+		const monofractal = {
+			alpha: i2 >= 0 ? hq[i2] : null,
+			alpha1: i2 >= 0 ? hq1[i2] : null,
+			alpha2: i2 >= 0 ? hq2[i2] : null,
+		};
+
+		return {
+			q: qValues,
+			hq, // global h(q), per q
+			hq1, // α₁-range h(q) (short scales), per q
+			hq2, // α₂-range h(q) (long scales), per q — null where insufficient
+			tau, // mass exponent τ(q) from the global curve
+			alpha, // Hölder exponent α from the global curve
+			falpha, // singularity spectrum f(α) from the global curve
+			hMin,
+			hMax,
+			multifractalWidth, // width of the global h(q) curve
+			width1, // width of the α₁ h(q) curve
+			width2, // width of the α₂ h(q) curve
+			monofractal, // h(2) per range; matches compute() alpha/alpha1/alpha2
+			ranges: {
+				global: [scales[0], scales[scales.length - 1]],
+				alpha1: alpha1Range,
+				alpha2: alpha2Range,
+			},
+			scales,
+			fluctuationsByQ,
+			lengthOfData: N,
 		};
 	};
 
