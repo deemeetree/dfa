@@ -180,6 +180,212 @@ A single call sweeps the whole q range and returns the generalised Hurst exponen
 
 **Typical parameter values:** q in the range **−5 to +5** (sometimes −10 to +10), with a step of 0.25, 0.5, or 1. `computeMultifractal()` accepts the same scale-generation parameters as `compute()` (`minWindow`, `step`, `expStep`, `shortMax`, `longMin`, `longMaxFraction`) and reuses the same scales and the same α₁/α₂ fit ranges, so the q = 2 curves match the monofractal `alpha`/`alpha1`/`alpha2` exactly. `compute()` itself is unchanged and remains the q = 2 special case.
 
+### Understanding h(q), multifractalWidth, and the multifractal curves
+
+Standard DFA gives you **one** number. Multifractal DFA gives you a **spectrum** of numbers — one scaling exponent for each q.
+
+- In standard DFA, `alpha` is a single scaling exponent.
+- In MFDFA, `h(q)` is the scaling exponent _for each value of q_.
+- `h(2)` is the closest equivalent to standard DFA alpha, because ordinary DFA is built on the second-order (squared) fluctuation function.
+- **Negative q** values emphasize the **small** fluctuations in the signal.
+- **Positive q** values emphasize the **large** fluctuations.
+- If `h(q)` is almost **flat** across q, the signal is closer to **monofractal** — small and large fluctuations scale the same way.
+- If `h(q)` **changes strongly** across q, the signal is **multifractal** — small and large fluctuations scale differently.
+
+A small example of the `q → hq` curve:
+
+```js
+q:  [-5, -4.5, -4, ..., 0, ..., 4, 4.5, 5]
+hq: [1.2, 1.18, 1.15, ..., 1.0, ..., 0.82, 0.79, 0.76]
+```
+
+Plotting `hq` against `q` draws this curve. The package gives you **three** such curves:
+
+```js
+q → hq   // global multifractal curve (all scales)
+q → hq1  // short-scale multifractal curve
+q → hq2  // long-scale multifractal curve
+```
+
+`hq2` (and `width2`) can be `null` if the input series is too short for reliable long-scale fitting — see the short-series note above.
+
+#### multifractalWidth
+
+`multifractalWidth` is a one-number summary of **how different** the scaling behaviour is between small and large fluctuations. It is calculated as:
+
+```js
+multifractalWidth = hMax - hMin
+```
+
+where, for the global curve:
+
+```js
+hMax = h(qMin)   // small fluctuations, e.g. q = -5
+hMin = h(qMax)   // large fluctuations, e.g. q = 5
+```
+
+Note that `multifractalWidth` only compares the **extremes** of the h(q) curve. The intermediate `h(q)` values still matter — they reveal the **shape** of the multifractal spectrum, which the width alone cannot show:
+
+```js
+Signal A:
+h(q) smoothly decreases from 1.2 to 0.8
+width = 0.4
+
+Signal B:
+h(q) stays near 1.2, then suddenly drops near q = 4
+width = 0.4
+```
+
+Both signals have the **same** `multifractalWidth`, but very different internal dynamics. So treat `multifractalWidth` as a useful summary, and read the full `hq` curve when you need the actual structure.
+
+#### Curve-shape metrics
+
+Because the width alone hides the shape (as shown above), the result also includes four numbers that summarise the **shape** of the global `hq` curve. They are derived from the global `q → hq` curve:
+
+```js
+result.multifractalWidth   // difference between the extremes (hMax − hMin)
+result.hCurveSlope         // general direction of h(q) vs q
+result.hCurveCurvature     // U-shape vs inverted-U shape
+result.hCurveNonlinearity  // how much the curve deviates from a straight line
+result.hMinLocation        // the q where persistence (h) is lowest
+```
+
+What each one means:
+
+- **`hCurveSlope`** — the slope of the best-fit straight line through `h(q)`. It captures the **overall direction**. Almost always negative (h decreases as q increases); a steeper negative slope means a stronger overall difference between small- and large-fluctuation scaling. A slope near 0 means a flat, near-monofractal curve.
+- **`hCurveCurvature`** — the second derivative (`2c`) of a quadratic fit to `h(q)`. It tells you the **bend** of the curve: **> 0** is a **U-shape** (convex), **< 0** is an **inverted-U** (concave), and **≈ 0** is roughly straight. This separates the two example signals above that share the same width.
+- **`hCurveNonlinearity`** — the RMS deviation of `h(q)` from the straight-line fit. **0** means a perfectly straight curve; larger values mean the multifractal spectrum has real structure (bends, kinks, asymmetry) that the slope and width don't capture.
+- **`hMinLocation`** — the q value at which `h(q)` is smallest, i.e. **where persistence is lowest**. For a monotonically decreasing curve this is simply `qMax`; an interior minimum signals a more complex, non-monotonic spectrum.
+
+The four fields above describe the **global** curve. The same four metrics are also provided for the **α₁** (short-scale) and **α₂** (long-scale) curves, using the `1`/`2` suffix (the same convention as `width1`/`width2`):
+
+```js
+// α₁ (short-scale) curve shape
+result.hCurveSlope1
+result.hCurveCurvature1
+result.hCurveNonlinearity1
+result.hMinLocation1
+
+// α₂ (long-scale) curve shape
+result.hCurveSlope2
+result.hCurveCurvature2
+result.hCurveNonlinearity2
+result.hMinLocation2
+```
+
+This lets you see **where** the multifractal structure lives: for example, a large `hCurveNonlinearity1` with a near-zero `hCurveNonlinearity2` means the rich multifractal behaviour is concentrated in the fast/short-scale dynamics, while the slow/long-scale part stays close to monofractal.
+
+All shape metrics are `null` for curves too short to fit (fewer than 3 valid q points). The α₂ shape fields are also `null` for short series, the same way `hq2`/`width2` are.
+
+#### Interpreting the values
+
+**`hCurveSlope`** — overall direction of `h(q)` (small → large fluctuations). For most real signals it is negative, because large fluctuations scale with a smaller exponent than small ones.
+
+| `hCurveSlope`             | Shape                          | Interpretation                                                                  |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
+| `≈ 0` (e.g. −0.02 to 0.02)| flat `h(q)`                    | near-**monofractal** — small and large fluctuations scale the same way          |
+| **mildly negative** (~ −0.05) | gently descending          | weak multifractality — modest difference between small and large fluctuations   |
+| **strongly negative** (≲ −0.1)| steeply descending         | strong multifractality — large fluctuations far less persistent than small ones |
+| **positive** (> 0)        | ascending                      | unusual — large fluctuations _more_ persistent than small; check for outliers / nonstationarity / preprocessing |
+
+Magnitudes are rules of thumb, not hard cutoffs — they depend on the data, its length, and preprocessing. Compare slopes **within the same setup** (same asset, timeframe, pipeline), not across unrelated datasets.
+
+**`hCurveCurvature`** — the bend of the curve (its second derivative).
+
+| `hCurveCurvature`     | Shape          | Interpretation                                                                 |
+| --------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `≈ 0`                 | straight line  | scaling changes uniformly with q — a simple, linear multifractal spectrum      |
+| **> 0**               | **U-shape** (convex)   | h drops fastest for mid-range q, flattening at the extremes               |
+| **< 0**               | **inverted-U** (concave) | h is flat in the middle and bends down at the extremes — often points to asymmetry between very small and very large fluctuations |
+
+**`hCurveNonlinearity`** — RMS deviation from a straight line; how much the slope alone misses.
+
+| `hCurveNonlinearity`  | Interpretation                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `≈ 0`                 | the curve is essentially a straight line — slope + width describe it fully                     |
+| **small but non-zero**| mild curvature or asymmetry in the spectrum                                                    |
+| **large**             | rich, structured spectrum (kinks, asymmetry) — read the full `hq` curve, don't rely on summaries |
+
+**`hMinLocation`** — the q where `h(q)` (persistence) is lowest.
+
+| `hMinLocation`        | Interpretation                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `= qMax` (e.g. 5)     | typical monotone curve — large fluctuations are the least persistent                          |
+| **interior q** (between qMin and qMax) | non-monotonic spectrum — a specific fluctuation magnitude scales differently; worth inspecting |
+| `= qMin` (e.g. −5)    | unusual — small fluctuations least persistent; check the signal and preprocessing             |
+
+**Comparing curves:** the same reading applies to the `1` (α₁, short-scale) and `2` (α₂, long-scale) variants. A steep `hCurveSlope1` with a flat `hCurveSlope2`, for instance, means the multifractality is concentrated in the fast dynamics while the slow trend stays monofractal.
+
+### Interpreting MFDFA in practice
+
+- **DFA alpha** tells you whether the signal has _one overall_ fractal scaling pattern.
+- **MFDFA** tells you whether small, medium, and large fluctuations follow the _same_ or _different_ scaling patterns.
+- A **low** `multifractalWidth` means the signal is closer to monofractal — one dominant scaling logic.
+- A **higher** `multifractalWidth` means the signal is more heterogeneous — small and large fluctuations behave differently across scales.
+- **Very high** width can indicate rich adaptive complexity, but it can also reflect noise, bursts, outliers, or nonstationarity, depending on the data.
+
+> **Warning:** do not interpret a larger multifractal width as automatically "better." Its meaning depends on the domain, the preprocessing, the data length, and whether the signal contains artifacts or outliers.
+
+### Example: financial time series
+
+In finance, MFDFA is usually applied to **log returns**, **absolute returns**, or **squared returns** — not to raw prices:
+
+```js
+price → log returns
+price → absolute returns / squared returns
+```
+
+Financial markets often contain volatility clustering, fat tails, regime changes, and different behaviour between calm periods and crisis-like periods. MFDFA is useful here because it can separate the scaling behaviour of small fluctuations from large fluctuations.
+
+| Output                       | Possible financial interpretation                                |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `h(2) ≈ 0.5`                 | returns are close to random-walk-like                            |
+| `h(2) > 0.5`                 | persistence / trend-like memory                                  |
+| `h(2) < 0.5`                 | anti-persistence / mean-reversion tendency                       |
+| large `multifractalWidth`    | small and large moves scale differently                          |
+| rising `multifractalWidth`   | market dynamics becoming more heterogeneous or regime-fragmented |
+| strong positive-q distortion | large moves / jumps / crashes have different scaling             |
+| strong negative-q distortion | calm-period microstructure has its own scaling                   |
+
+This is **not** a trading signal by itself. It is a descriptive tool for market structure, volatility regimes, and risk dynamics.
+
+A simple rolling-window idea:
+
+```js
+// 1. Convert prices to log returns
+// 2. Run computeMultifractal() on a rolling window
+// 3. Track h(2), multifractalWidth, hq, width1, and width2 over time
+```
+
+A rolling increase in `multifractalWidth` can indicate that the market is becoming less uniform and more regime-dependent. But interpretation requires comparison against the **same asset, same timeframe, and same preprocessing method**.
+
+### Recommended outputs to inspect
+
+```js
+result.monofractal.alpha   // h(2), closest to standard DFA alpha
+result.hq                  // full q → h(q) curve
+result.multifractalWidth   // summary width between q extremes
+result.hCurveSlope         // general direction of the h(q) curve
+result.hCurveCurvature     // U-shape (>0) vs inverted-U (<0)
+result.hCurveNonlinearity  // deviation from a straight line
+result.hMinLocation        // q where persistence is lowest
+result.hq1                 // short-scale h(q)
+result.hq2                 // long-scale h(q), if available
+result.width1              // short-scale multifractal width
+result.width2              // long-scale multifractal width, if available
+result.hCurveSlope1        // α₁ curve shape (also Curvature1/Nonlinearity1/hMinLocation1)
+result.hCurveSlope2        // α₂ curve shape (also Curvature2/Nonlinearity2/hMinLocation2)
+result.alpha               // singularity strengths for f(alpha)
+result.falpha              // multifractal singularity spectrum
+```
+
+**Important naming clarification:** in the multifractal output, `alpha` is **not** the same as standard DFA `alpha`.
+
+- `monofractal.alpha` is the DFA-like alpha, approximately `h(2)`.
+- `alpha` together with `falpha` is the **singularity spectrum** used in formal multifractal analysis.
+
+MFDFA is a **descriptive** analysis method — it characterises structure in data. It is not a prediction engine.
+
 ### Concept
 
 DFA is used to measure the behaviour of a time series.
