@@ -130,6 +130,10 @@ let mf = dfa.computeMultifractal({
 	qMin: -5, // smallest q (emphasises small fluctuations)
 	qMax: 5, // largest q (emphasises large fluctuations)
 	qStep: 0.5, // step between q values
+	surrogateCount: 20, // shuffled surrogates behind the verdict (0 disables)
+	seed: 42, // PRNG seed for the shuffles — same series + seed → same verdict
+	// random: () => Math.random(),          // or supply your own RNG
+	// widthThresholds: { weak: 0.1, strong: 0.25 }, // rule-of-thumb cutoffs
 });
 ```
 
@@ -155,6 +159,31 @@ A single call sweeps the whole q range and returns the generalised Hurst exponen
 	width1: 0.87,      // width of the α₁ curve
 	width2: 0.26,      // width of the α₂ curve
 
+	// Verdicts — is each curve multifractal? (see "Is it multifractal?" below)
+	multifractalLabel: "multifractal",  // "monofractal" / "weak" / "multifractal"
+	multifractalLabel1: "multifractal", // same for the α₁ curve
+	multifractalLabel2: "weak",         // same for the α₂ curve (null if hq2 is)
+	verdict: {
+		global: {
+			label: "multifractal",
+			source: "correlations", // "correlations" / "distribution" / "both" / null
+			significant: true,      // width beats the shuffled surrogates (z ≥ 2)
+			z: 6.8,                 // (width − surrogate mean) / surrogate sd
+			p: 0.048,               // one-sided empirical p against the surrogates
+			excess: 0.44,           // width − surrogate mean: the correlation-borne part
+			width: 1.18,            // |h(qMin) − h(qMax)| of this curve
+			surrogateWidth: 0.74,   // mean width of the shuffled series
+			surrogateSd: 0.06,
+			surrogateCount: 20,
+		},
+		alpha1: { ... },  // same fields for the α₁ curve
+		alpha2: { ... },  // same fields for the α₂ curve
+	},
+	surrogate: {       // raw material behind the verdicts (null if surrogateCount is 0)
+		count: 20, seed: 42, q: [-5, 5],
+		widths: { global: [...], alpha1: [...], alpha2: [...] },
+	},
+
 	monofractal: {     // h(2) per curve — matches compute() alpha/alpha1/alpha2
 		alpha: 0.71, alpha1: 0.68, alpha2: 0.73,
 	},
@@ -177,6 +206,41 @@ A single call sweeps the whole q range and returns the generalised Hurst exponen
 - `multifractalWidth` (= `hMax − hMin`) is the single-number summary most often reported: ≈ 0 indicates monofractal, larger values indicate a richer multifractal structure.
 - `alpha`/`falpha` are the standard **multifractal spectrum** (derived from the global curve) — for a multifractal signal, plotting `falpha` against `alpha` gives an inverted-parabola shape.
 - **`hq2`/`width2` are `null` for short series** (same N ≥ ~256 requirement as `compute().alpha2`). Fall back to `hq` and `hq1` in that case.
+
+### Is it multifractal? Verdicts and surrogates
+
+A width alone cannot say whether a signal is multifractal. Two things inflate it without any multifractal dynamics:
+
+- **Finite size.** Even white noise shows a width of about 0.15–0.2 on 1000 points at q = ±5, because the fluctuation function at negative q is noisy.
+- **Fat tails.** A broad value distribution produces a wide h(q) curve on its own (Kantelhardt et al. 2002 call this the first kind of multifractality). It says nothing about the temporal ordering.
+
+`computeMultifractal()` therefore judges each curve against **shuffled surrogates**: the series is reshuffled `surrogateCount` times with a seeded PRNG, each shuffle keeps the values but destroys the ordering, and its width is computed at the two extreme q values only. The observed **endpoint width** `|h(qMin) − h(qMax)|` is then compared with the surrogate widths:
+
+| Field | Meaning |
+|---|---|
+| `z` | how many surrogate standard deviations the observed width sits above the surrogate mean |
+| `p` | one-sided empirical p: share of surrogates at least as wide (with the +1 correction, so 20 surrogates give p ≥ 0.048) |
+| `significant` | `z ≥ 2` — the ordering carries multifractality the values alone do not |
+| `excess` | observed width − surrogate mean: the part attributable to correlations |
+| `surrogateWidth` | mean surrogate width: the part attributable to the value distribution |
+
+**Labels:**
+
+| `label` | `source` | When |
+|---|---|---|
+| `"multifractal"` | `"correlations"` | significant, `excess ≥ weak`, surrogates themselves narrow |
+| `"multifractal"` | `"both"` | significant, `excess ≥ weak`, surrogates themselves wide (`≥ strong`): fat tails **and** correlated dynamics |
+| `"weak"` | `"correlations"` / `"both"` | significant but `excess < weak`: a real but small effect |
+| `"multifractal"` | `"distribution"` | not significant, but the width is `≥ strong`: the shuffles reproduce it, so it comes from the value distribution, not the dynamics |
+| `"monofractal"` | `null` | not significant and the width is below `strong`: what an iid series with these values would show |
+
+The `weak` (0.1) and `strong` (0.25) cutoffs are the rule-of-thumb values from the literature and can be changed with `widthThresholds`. With `surrogateCount: 0` (or fewer than 5 usable surrogates) the label falls back to those cutoffs alone and `significant`, `z`, `p` are `null`.
+
+**Which verdict to use.** Read `verdict.global` (`multifractalLabel`). The α₁ verdict is fitted on scales 4–16, where the fluctuation function is unreliable at negative q, so `width1` and its verdict are inflated for almost any signal; use them only to see *where* the structure sits, not *whether* it exists. `verdict.alpha2` is closest to the textbook fit range but needs a long series.
+
+**Cost.** Each surrogate runs the fluctuation sweep at two q values, so 20 surrogates cost roughly the same as a full 21-point q sweep. Reduce `surrogateCount` on very long series, or set it to 0 and reuse the surrogate widths from `surrogate.widths` elsewhere.
+
+> **Note:** the verdict compares endpoint widths, not `multifractalWidth` (which is `max − min` over the whole curve). The two coincide when h(q) is monotonic, as it is for a genuinely multifractal signal. On noisy curves `max − min` can be inflated by a single interior point (typically q = 0 on series with an extreme dynamic range), which would bias the test towards "significant".
 
 **Typical parameter values:** q in the range **−5 to +5** (sometimes −10 to +10), with a step of 0.25, 0.5, or 1. `computeMultifractal()` accepts the same scale-generation parameters as `compute()` (`minWindow`, `step`, `expStep`, `shortMax`, `longMin`, `longMaxFraction`) and reuses the same scales and the same α₁/α₂ fit ranges, so the q = 2 curves match the monofractal `alpha`/`alpha1`/`alpha2` exactly. `compute()` itself is unchanged and remains the q = 2 special case.
 

@@ -24,7 +24,7 @@
 	],
 	"main": "./dfa",
 	"author": "Dmitry Paranyushkin <contact@noduslabs.com> (http://noduslabs.com)",
-	"version": "2.3.0",
+	"version": "2.4.0",
 	"repository": {
 		"type": "git",
 		"url": "git+ssh://git@github.com/deemeetree/dfa.git"
@@ -43,7 +43,7 @@
 	},
 	"homepage": "https://github.com/deemeetree/dfa#readme",
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"test": "node test.js"
 	},
 	"license": "AGPLv3",
 	"dependencies": {}

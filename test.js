@@ -87,3 +87,84 @@ console.log(
 		ok ? "PASS" : "FAIL"
 	}`
 );
+
+// ── Multifractal verdicts ───────────────────────────────────────────────────
+// Three reference signals: white noise (monofractal), a binomial multiplicative
+// cascade (multifractal through its ordering) and the same cascade shuffled
+// (same values, ordering destroyed — only the distribution-driven width stays).
+function seededRng(seed) {
+	let a = seed >>> 0;
+	return () => {
+		a = (a + 0x6d2b79f5) >>> 0;
+		let t = a;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+const rng = seededRng(7);
+const gauss = () => {
+	const u = rng() || 1e-12;
+	return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
+};
+const cascade = (levels, a = 0.75) => {
+	let s = [1];
+	for (let i = 0; i < levels; i++) {
+		const next = [];
+		for (const v of s) next.push(v * a, v * (1 - a));
+		s = next;
+	}
+	return s;
+};
+const white = Array.from({ length: 1024 }, gauss);
+const casc = cascade(10);
+const shuffledCasc = casc.slice();
+for (let i = shuffledCasc.length - 1; i > 0; i--) {
+	const j = Math.floor(rng() * (i + 1));
+	[shuffledCasc[i], shuffledCasc[j]] = [shuffledCasc[j], shuffledCasc[i]];
+}
+
+const verdictOpts = { qMin: -5, qMax: 5, qStep: 0.5 };
+const vWhite = new DFA(white).computeMultifractal(verdictOpts).verdict.global;
+const vCasc = new DFA(casc).computeMultifractal(verdictOpts).verdict.global;
+const vShuf = new DFA(shuffledCasc).computeMultifractal(verdictOpts).verdict
+	.global;
+const show = (v) =>
+	`${v.label} (source: ${v.source}, z: ${v.z.toFixed(2)}, p: ${v.p.toFixed(
+		3
+	)}, width: ${v.width.toFixed(3)}, surrogate: ${v.surrogateWidth.toFixed(3)})`;
+console.log("white noise:      ", show(vWhite));
+console.log("cascade:          ", show(vCasc));
+console.log("shuffled cascade: ", show(vShuf));
+
+const verdictsOk =
+	vWhite.label === "monofractal" &&
+	vWhite.significant === false &&
+	vCasc.label === "multifractal" &&
+	vCasc.significant === true &&
+	vShuf.significant === false &&
+	vShuf.source === "distribution";
+console.log(`verdict check: ${verdictsOk ? "PASS" : "FAIL"}`);
+
+// Same seed → same surrogates → same verdict.
+const again = new DFA(casc).computeMultifractal(verdictOpts).verdict.global;
+console.log(
+	`verdict determinism: ${
+		JSON.stringify(again) === JSON.stringify(vCasc) ? "PASS" : "FAIL"
+	}`
+);
+
+// surrogateCount: 0 falls back to width thresholds only.
+const noSurr = new DFA(casc).computeMultifractal({
+	...verdictOpts,
+	surrogateCount: 0,
+}).verdict.global;
+console.log(
+	`no-surrogate fallback: ${
+		noSurr.label === "multifractal" && noSurr.significant === null
+			? "PASS"
+			: "FAIL"
+	}`
+);
+
+if (!ok || !verdictsOk) process.exitCode = 1;

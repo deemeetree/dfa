@@ -265,6 +265,190 @@ let DFA = (function () {
 		return { slope, curvature, nonlinearity, hMinLocation };
 	}
 
+	// Deterministic PRNG (mulberry32) so surrogate statistics are reproducible
+	// for the same series and seed.
+	function seededRandom(seed) {
+		let a = seed >>> 0;
+		return function () {
+			a = (a + 0x6d2b79f5) >>> 0;
+			let t = a;
+			t = Math.imul(t ^ (t >>> 15), t | 1);
+			t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+	}
+
+	// Fisher–Yates shuffle: keeps the value distribution, destroys the ordering.
+	function shuffledCopy(series, random) {
+		const out = series.slice();
+		for (let i = out.length - 1; i > 0; i--) {
+			const j = Math.floor(random() * (i + 1));
+			const t = out[i];
+			out[i] = out[j];
+			out[j] = t;
+		}
+		return out;
+	}
+
+	function sampleSd(x, m) {
+		if (x.length < 2) return null;
+		let s = 0;
+		for (let i = 0; i < x.length; i++) {
+			const d = x[i] - m;
+			s += d * d;
+		}
+		return Math.sqrt(s / (x.length - 1));
+	}
+
+	// Spread of an h(q) curve: max − min over the valid points. ≈0 → monofractal.
+	function widthOf(arr) {
+		const v = arr.filter((h) => h !== null);
+		return v.length ? Math.max(...v) - Math.min(...v) : null;
+	}
+
+	// |h(qMin) − h(qMax)| over the valid points. This is what the surrogates
+	// measure, so the verdict uses it too: max − min over a full q sweep is
+	// inflated by any noisy interior point (q = 0 on series with an extreme
+	// dynamic range), which would bias the comparison towards "significant".
+	function endpointWidth(arr) {
+		const v = arr.filter((h) => h !== null);
+		return v.length >= 2 ? Math.abs(v[0] - v[v.length - 1]) : null;
+	}
+
+	// h(q) for one series at the given q values, fitted three ways:
+	// global (all scales), α₁ (minWindow..shortMax), α₂ (16..N/4, ≥4 segments).
+	// The ranges mirror compute() so q = 2 reproduces alpha / alpha1 / alpha2.
+	function hCurves(
+		series,
+		qValues,
+		{ minWindow, expStep, step, shortMax, longMin, longMaxFraction }
+	) {
+		const N = series.length;
+		const { profile } = integratedProfile(series);
+		const scales = generateScales(N, {
+			minWindow,
+			step,
+			expStep,
+			shortMax,
+			longMin,
+			longMaxFraction,
+		});
+		const scalesLog = scales.map((s) => Math.log(s));
+		const alpha1Range = [minWindow, Math.min(shortMax, N)];
+		const alpha2Range = [16, Math.floor(N * 0.25)];
+
+		const hq = [];
+		const hq1 = [];
+		const hq2 = [];
+		const fluctuationsByQ = [];
+
+		for (let qi = 0; qi < qValues.length; qi++) {
+			const q = qValues[qi];
+			const fluct = new Array(scales.length);
+			const fluctLog = new Array(scales.length).fill(null);
+			const segs = new Array(scales.length);
+			const xs = [];
+			const ys = [];
+			for (let i = 0; i < scales.length; i++) {
+				const { F, segments } = fluctuationForScale(
+					profile,
+					scales[i],
+					minWindow,
+					q
+				);
+				fluct[i] = F;
+				segs[i] = segments;
+				if (F > 0) {
+					fluctLog[i] = Math.log(F);
+					xs.push(scalesLog[i]);
+					ys.push(fluctLog[i]);
+				}
+			}
+			fluctuationsByQ.push(fluct);
+
+			hq.push(xs.length >= 3 ? linearRegression(xs, ys).slope : null);
+
+			const logs = { scale: scalesLog, fluct: fluctLog };
+			hq1.push(fitAlphaInRange(scales, logs, alpha1Range, null, 0).alpha);
+			hq2.push(fitAlphaInRange(scales, logs, alpha2Range, segs, 4).alpha);
+		}
+
+		return { hq, hq1, hq2, scales, fluctuationsByQ, alpha1Range, alpha2Range };
+	}
+
+	const NULL_VERDICT = Object.freeze({
+		label: null,
+		source: null,
+		significant: null,
+		z: null,
+		p: null,
+		excess: null,
+		width: null,
+		surrogateWidth: null,
+		surrogateSd: null,
+		surrogateCount: 0,
+	});
+
+	// Is this h(q) curve multifractal? Two ingredients:
+	//   - the width itself, read against rule-of-thumb thresholds
+	//   - the widths of shuffled surrogates, which keep the value distribution
+	//     but destroy the temporal ordering (Kantelhardt et al. 2002). A width
+	//     the shuffles reproduce is owed to fat tails, not to correlations.
+	function multifractalVerdict(width, surrogateWidths, { weak, strong }) {
+		if (width === null) return { ...NULL_VERDICT };
+		const byWidth = (w) =>
+			w < weak ? "monofractal" : w < strong ? "weak" : "multifractal";
+
+		const n = surrogateWidths.length;
+		if (n < 5) {
+			return {
+				...NULL_VERDICT,
+				label: byWidth(width),
+				width,
+				surrogateCount: n,
+			};
+		}
+
+		const m = mean(surrogateWidths);
+		const sd = sampleSd(surrogateWidths, m);
+		const z = sd > 0 ? (width - m) / sd : width > m ? Infinity : null;
+		// one-sided empirical p with the +1 correction (Davison & Hinkley)
+		let exceed = 0;
+		for (let i = 0; i < n; i++) if (surrogateWidths[i] >= width) exceed++;
+		const p = (exceed + 1) / (n + 1);
+		const excess = width - m;
+		const significant = z !== null && z >= 2;
+
+		let label, source;
+		if (significant) {
+			// the ordering carries multifractality beyond what the values give
+			label = excess < weak ? "weak" : "multifractal";
+			source = m >= strong ? "both" : "correlations";
+		} else if (width >= strong) {
+			// shuffles reproduce a large width: multifractality of the fat-tailed
+			// kind (Kantelhardt's type i), not of the dynamics
+			label = "multifractal";
+			source = "distribution";
+		} else {
+			// a width this small is what an iid series with these values gives
+			label = "monofractal";
+			source = null;
+		}
+
+		return {
+			label,
+			source,
+			significant,
+			z,
+			p,
+			excess,
+			width,
+			surrogateWidth: m,
+			surrogateSd: sd,
+			surrogateCount: n,
+		};
+	}
+
 	function detrendLinear(ySeg) {
 		// returns fitted values for the segment
 		const n = ySeg.length;
@@ -671,8 +855,10 @@ let DFA = (function () {
 
 	// Multifractal DFA (MFDFA).
 	// Sweeps the q-order parameter to obtain the generalized Hurst exponent h(q),
-	// the mass exponent tau(q), and the singularity spectrum f(alpha).
-	// q === 2 reproduces the monofractal `compute()` alpha (returned as hq2).
+	// the mass exponent tau(q), and the singularity spectrum f(alpha), then judges
+	// each h(q) curve (global / α₁ / α₂) against shuffled surrogates.
+	// q === 2 reproduces the monofractal `compute()` alpha / alpha1 / alpha2
+	// (returned under `monofractal`).
 	DFA.prototype.computeMultifractal = function ({
 		qMin = -5,
 		qMax = 5,
@@ -683,9 +869,22 @@ let DFA = (function () {
 		shortMax = 16,
 		longMin = 16,
 		longMaxFraction = 0.25,
+		surrogateCount = 20,
+		seed = 42,
+		random = null,
+		widthThresholds = {},
 	} = {}) {
 		const rr = this.x;
 		const N = rr.length;
+		const thresholds = { weak: 0.1, strong: 0.25, ...widthThresholds };
+		const scaleParams = {
+			minWindow,
+			expStep,
+			step,
+			shortMax,
+			longMin,
+			longMaxFraction,
+		};
 
 		// Build the q list (inclusive of qMax up to floating-point tolerance).
 		const qValues = [];
@@ -720,6 +919,15 @@ let DFA = (function () {
 				hCurveCurvature2: null,
 				hCurveNonlinearity2: null,
 				hMinLocation2: null,
+				multifractalLabel: null,
+				multifractalLabel1: null,
+				multifractalLabel2: null,
+				verdict: {
+					global: { ...NULL_VERDICT },
+					alpha1: { ...NULL_VERDICT },
+					alpha2: { ...NULL_VERDICT },
+				},
+				surrogate: null,
 				monofractal: { alpha: null, alpha1: null, alpha2: null },
 				ranges: { global: null, alpha1: null, alpha2: null },
 				scales: [],
@@ -729,58 +937,8 @@ let DFA = (function () {
 		}
 
 		// Same integrated profile and scales as the monofractal path.
-		const { profile } = integratedProfile(rr);
-		const scales = generateScales(N, {
-			minWindow,
-			step,
-			expStep,
-			shortMax,
-			longMin,
-			longMaxFraction,
-		});
-		const scalesLog = scales.map((s) => Math.log(s));
-
-		// Fit ranges mirror compute(): global (all scales), α₁ (short), α₂ (long).
-		const alpha1Range = [minWindow, Math.min(shortMax, N)];
-		const alpha2Range = [16, Math.floor(N * 0.25)];
-
-		const hq = []; // global h(q): fitted across all valid scales
-		const hq1 = []; // α₁ h(q): fitted over short scales (4..shortMax)
-		const hq2 = []; // α₂ h(q): fitted over long scales (16..N/4)
-		const fluctuationsByQ = [];
-
-		for (let qi = 0; qi < qValues.length; qi++) {
-			const q = qValues[qi];
-			const fluct = new Array(scales.length);
-			const fluctLog = new Array(scales.length).fill(null);
-			const segs = new Array(scales.length);
-			const xs = [];
-			const ys = [];
-			for (let i = 0; i < scales.length; i++) {
-				const { F, segments } = fluctuationForScale(
-					profile,
-					scales[i],
-					minWindow,
-					q
-				);
-				fluct[i] = F;
-				segs[i] = segments;
-				if (F > 0) {
-					fluctLog[i] = Math.log(F);
-					xs.push(scalesLog[i]);
-					ys.push(fluctLog[i]);
-				}
-			}
-			fluctuationsByQ.push(fluct);
-
-			// global fit
-			hq.push(xs.length >= 3 ? linearRegression(xs, ys).slope : null);
-
-			// α₁ and α₂ fits via the same range-restricted helper compute() uses
-			const logs = { scale: scalesLog, fluct: fluctLog };
-			hq1.push(fitAlphaInRange(scales, logs, alpha1Range, null, 0).alpha);
-			hq2.push(fitAlphaInRange(scales, logs, alpha2Range, segs, 4).alpha);
-		}
+		const { hq, hq1, hq2, scales, fluctuationsByQ, alpha1Range, alpha2Range } =
+			hCurves(rr, qValues, scaleParams);
 
 		// tau(q) = q * h(q) - 1
 		const tau = qValues.map((q, i) => (hq[i] !== null ? q * hq[i] - 1 : null));
@@ -805,10 +963,6 @@ let DFA = (function () {
 
 		// Multifractal width = spread of h(q). h(q) decreases with q, so for the
 		// global curve hMax sits at qMin and hMin at qMax. ≈0 → monofractal.
-		const widthOf = (arr) => {
-			const v = arr.filter((h) => h !== null);
-			return v.length ? Math.max(...v) - Math.min(...v) : null;
-		};
 		const validH = hq.filter((h) => h !== null);
 		const hMax = validH.length ? Math.max(...validH) : null;
 		const hMin = validH.length ? Math.min(...validH) : null;
@@ -829,6 +983,51 @@ let DFA = (function () {
 			alpha: i2 >= 0 ? hq[i2] : null,
 			alpha1: i2 >= 0 ? hq1[i2] : null,
 			alpha2: i2 >= 0 ? hq2[i2] : null,
+		};
+
+		// Shuffled surrogates. Each shuffle keeps the values and destroys the
+		// ordering; its width is the multifractality owed to the distribution
+		// alone. Only the two extreme q values are needed for an endpoint
+		// width, which keeps the sweep cheap.
+		let surrogate = null;
+		const surrogateWidths = { global: [], alpha1: [], alpha2: [] };
+		if (surrogateCount > 0 && endpointWidth(hq) !== null) {
+			const rng = typeof random === "function" ? random : seededRandom(seed);
+			const qEnds = qMin === qMax ? [qMin] : [qMin, qMax];
+			for (let i = 0; i < surrogateCount; i++) {
+				const curves = hCurves(shuffledCopy(rr, rng), qEnds, scaleParams);
+				const w = endpointWidth(curves.hq);
+				const w1 = endpointWidth(curves.hq1);
+				const w2 = endpointWidth(curves.hq2);
+				if (w !== null) surrogateWidths.global.push(w);
+				if (w1 !== null) surrogateWidths.alpha1.push(w1);
+				if (w2 !== null) surrogateWidths.alpha2.push(w2);
+			}
+			surrogate = {
+				count: surrogateCount,
+				seed: typeof random === "function" ? null : seed,
+				q: qEnds,
+				widths: surrogateWidths,
+			};
+		}
+
+		// Verdicts compare endpoint widths (see endpointWidth) with the surrogates.
+		const verdict = {
+			global: multifractalVerdict(
+				endpointWidth(hq),
+				surrogateWidths.global,
+				thresholds
+			),
+			alpha1: multifractalVerdict(
+				endpointWidth(hq1),
+				surrogateWidths.alpha1,
+				thresholds
+			),
+			alpha2: multifractalVerdict(
+				endpointWidth(hq2),
+				surrogateWidths.alpha2,
+				thresholds
+			),
 		};
 
 		return {
@@ -859,6 +1058,12 @@ let DFA = (function () {
 			hCurveCurvature2: shape2.curvature,
 			hCurveNonlinearity2: shape2.nonlinearity,
 			hMinLocation2: shape2.hMinLocation,
+			// verdicts: "monofractal" / "weak" / "multifractal" per curve
+			multifractalLabel: verdict.global.label,
+			multifractalLabel1: verdict.alpha1.label,
+			multifractalLabel2: verdict.alpha2.label,
+			verdict, // full verdict per curve (label, source, z, p, excess, …)
+			surrogate, // shuffled-surrogate widths the verdicts were judged against
 			monofractal, // h(2) per range; matches compute() alpha/alpha1/alpha2
 			ranges: {
 				global: [scales[0], scales[scales.length - 1]],
