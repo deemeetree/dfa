@@ -238,7 +238,22 @@ The `weak` (0.1) and `strong` (0.25) cutoffs are the rule-of-thumb values from t
 
 **Which verdict to use.** Read `verdict.global` (`multifractalLabel`). The α₁ verdict is fitted on scales 4–16, where the fluctuation function is unreliable at negative q, so `width1` and its verdict are inflated for almost any signal; use them only to see *where* the structure sits, not *whether* it exists. `verdict.alpha2` is closest to the textbook fit range but needs a long series.
 
-**Cost.** Each surrogate runs the fluctuation sweep at two q values, so 20 surrogates cost roughly the same as a full 21-point q sweep. Reduce `surrogateCount` on very long series, or set it to 0 and reuse the surrogate widths from `surrogate.widths` elsewhere.
+**How many surrogates.** One shuffle produces one surrogate, so "shuffles" and "surrogates" are the same number, `surrogateCount`.
+
+| `surrogateCount` | What you get |
+|---|---|
+| 0 | no test; labels from the width cutoffs alone, `significant` / `z` / `p` / `source` are `null`, `surrogate` is `null` |
+| 1–4 | same as 0 (too few for a mean and sd; the package skips the test) |
+| 5 | hard floor: a rough `z`; `p` cannot go below 0.17, so it is not usable |
+| 10 | practical minimum: `z` is reasonably stable; `p` bottoms out at 0.09 |
+| 20 | default: `p` can reach 0.048, so "significant at 5%" becomes possible |
+| 50 | `p` can reach 0.02; `z` and `surrogateSd` are well estimated |
+
+**Cost.** Each surrogate runs the fluctuation sweep at two q values, so 20 surrogates cost roughly the same as a full 21-point q sweep, and cost grows linearly with the count. Reduce `surrogateCount` on very long series, or set it to 0 and reuse the surrogate widths from `surrogate.widths` elsewhere.
+
+**What depends on the surrogates.** Only the verdict: `verdict.*.significant`, `z`, `p`, `excess`, `source`, `surrogateWidth`, `surrogateSd`, `surrogateCount`, the labels (`multifractalLabel`, `multifractalLabel1`, `multifractalLabel2`, `verdict.*.label`), and the raw `surrogate` block. Everything else — `hq`, `hq1`, `hq2`, `tau`, `alpha`, `falpha`, all widths, all curve-shape fields, `monofractal`, `ranges`, `scales` — is computed from the original series before any shuffling and is identical whether surrogates run or not. `compute()` and its `alpha` / `alpha1` / `alpha2` never run shuffles.
+
+**Minimum data.** The test needs a computable endpoint width, so at least `minWindow + 1` points, but that is far from enough for it to mean anything. Below roughly 256 points there is no α₂ curve and `verdict.alpha2` is `null`; below roughly 500 points the width at negative q is noisy enough that only a large `z` should be trusted. The surrogates calibrate the finite-size floor for the exact N and q you used, which is the main reason to keep them on short series rather than switch to fixed cutoffs.
 
 > **Note:** the verdict compares endpoint widths, not `multifractalWidth` (which is `max − min` over the whole curve). The two coincide when h(q) is monotonic, as it is for a genuinely multifractal signal. On noisy curves `max − min` can be inflated by a single interior point (typically q = 0 on series with an extreme dynamic range), which would bias the test towards "significant".
 
