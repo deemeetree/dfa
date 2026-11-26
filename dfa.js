@@ -100,10 +100,10 @@ let DFA = (function () {
 			shortMax = 16,
 			longMin = 16,
 			longMaxFraction = 0.25,
+			maxScale = N, // largest scale to generate (the global fit's cap)
 		} = {}
 	) {
-		// Use the full data length (N) for global alpha, no hard cap
-		const maxReli = N;
+		const maxReli = Math.max(minWindow, Math.min(N, Math.floor(maxScale)));
 		const S = new Set();
 
 		// α1 anchors: minWindow..shortMax inclusive, in +step increments
@@ -148,6 +148,35 @@ let DFA = (function () {
 				.sort((a, b) => a - b);
 		}
 		return scales;
+	}
+
+	// Largest scale to compute: the global cap, but never less than what α1
+	// (up to shortMax) and α2 (up to N/4) need.
+	function scaleCeiling(N, { shortMax, globalMaxFraction }) {
+		const f = globalMaxFraction > 0 ? Math.min(1, globalMaxFraction) : 1;
+		return Math.min(N, Math.max(Math.floor(N * f), Math.floor(N * 0.25), shortMax));
+	}
+
+	// Global fit on points with scale ≤ N·globalMaxFraction (valid F only),
+	// extended to the 3 smallest valid scales if the cap leaves fewer.
+	// Boxes near the full series length are averaged over one or two
+	// segments, so their F(s) is mostly chance; the conventional cap is N/4.
+	function fitGlobal(scales, scalesLog, fluctLog, N, globalMaxFraction) {
+		const f = globalMaxFraction > 0 ? Math.min(1, globalMaxFraction) : 1;
+		const cap = Math.floor(N * f);
+		const xs = [], ys = [], used = [];
+		for (let i = 0; i < scales.length; i++) {
+			if (fluctLog[i] === null) continue;
+			if (scales[i] > cap && xs.length >= 3) break;
+			xs.push(scalesLog[i]);
+			ys.push(fluctLog[i]);
+			used.push(scales[i]);
+		}
+		return {
+			coefficients: linearRegression(xs, ys),
+			range: used.length ? [used[0], used[used.length - 1]] : null,
+			count: xs.length,
+		};
 	}
 
 	function linearRegression(x, y) {
@@ -321,7 +350,7 @@ let DFA = (function () {
 	function hCurves(
 		series,
 		qValues,
-		{ minWindow, expStep, step, shortMax, longMin, longMaxFraction }
+		{ minWindow, expStep, step, shortMax, longMin, longMaxFraction, globalMaxFraction }
 	) {
 		const N = series.length;
 		const { profile } = integratedProfile(series);
@@ -332,6 +361,7 @@ let DFA = (function () {
 			shortMax,
 			longMin,
 			longMaxFraction,
+			maxScale: scaleCeiling(N, { shortMax, globalMaxFraction }),
 		});
 		const scalesLog = scales.map((s) => Math.log(s));
 		const alpha1Range = [minWindow, Math.min(shortMax, N)];
@@ -347,8 +377,6 @@ let DFA = (function () {
 			const fluct = new Array(scales.length);
 			const fluctLog = new Array(scales.length).fill(null);
 			const segs = new Array(scales.length);
-			const xs = [];
-			const ys = [];
 			for (let i = 0; i < scales.length; i++) {
 				const { F, segments } = fluctuationForScale(
 					profile,
@@ -358,22 +386,23 @@ let DFA = (function () {
 				);
 				fluct[i] = F;
 				segs[i] = segments;
-				if (F > 0) {
-					fluctLog[i] = Math.log(F);
-					xs.push(scalesLog[i]);
-					ys.push(fluctLog[i]);
-				}
+				if (F > 0) fluctLog[i] = Math.log(F);
 			}
 			fluctuationsByQ.push(fluct);
 
-			hq.push(xs.length >= 3 ? linearRegression(xs, ys).slope : null);
+			const g = fitGlobal(scales, scalesLog, fluctLog, N, globalMaxFraction);
+			hq.push(g.count >= 3 ? g.coefficients.slope : null);
 
 			const logs = { scale: scalesLog, fluct: fluctLog };
 			hq1.push(fitAlphaInRange(scales, logs, alpha1Range, null, 0).alpha);
 			hq2.push(fitAlphaInRange(scales, logs, alpha2Range, segs, 4).alpha);
 		}
 
-		return { hq, hq1, hq2, scales, fluctuationsByQ, alpha1Range, alpha2Range };
+		const gf = globalMaxFraction > 0 ? Math.min(1, globalMaxFraction) : 1;
+		const globalCap = Math.floor(N * gf);
+		const capped = scales.filter((s) => s <= globalCap);
+		const globalRange = [scales[0], (capped.length >= 3 ? capped : scales.slice(0, 3)).slice(-1)[0]];
+		return { hq, hq1, hq2, scales, fluctuationsByQ, alpha1Range, alpha2Range, globalRange };
 	}
 
 	const NULL_VERDICT = Object.freeze({
@@ -686,7 +715,8 @@ let DFA = (function () {
 		shortMax = 16,
 		longMin = 16,
 		longMaxFraction = 0.25,
-		level = "moderate" // threshold sensitivity: "relaxed", "moderate", or "strict"
+		level = "moderate", // threshold sensitivity: "relaxed", "moderate", or "strict"
+		globalMaxFraction = 0.25 // global α fits scales up to N·this (1 = whole series, the pre-2.5 behaviour)
 	) {
 		const rr = this.x;
 		const N = rr.length;
@@ -725,6 +755,7 @@ let DFA = (function () {
 				dfa2Label: null,
 				alpha1Range: null,
 				alpha2Range: null,
+				globalRange: null,
 			};
 		}
 
@@ -751,6 +782,7 @@ let DFA = (function () {
 			shortMax,
 			longMin,
 			longMaxFraction,
+			maxScale: scaleCeiling(N, { shortMax, globalMaxFraction }),
 		});
 		const segments = new Array(scales.length);
 		const fluctuations = new Array(scales.length);
@@ -771,16 +803,14 @@ let DFA = (function () {
 			if (fluctuations[i] > 0) fluctuationsLog[i] = Math.log(fluctuations[i]);
 		}
 
-		// Global α on valid (non-null) points
-		const xAll = [],
-			yAll = [];
-		for (let i = 0; i < scales.length; i++) {
-			if (fluctuationsLog[i] !== null) {
-				xAll.push(scalesLog[i]);
-				yAll.push(fluctuationsLog[i]);
-			}
-		}
-		const coefficients = linearRegression(xAll, yAll);
+		// Global α on valid points up to N·globalMaxFraction
+		const { coefficients, range: globalRange } = fitGlobal(
+			scales,
+			scalesLog,
+			fluctuationsLog,
+			N,
+			globalMaxFraction
+		);
 		const alpha = coefficients.slope;
 		const alphaScoreVal = alphaScoreNumeric(alpha);
 		const alphaScoreCat = this.alphaScore(alpha, level);
@@ -850,6 +880,8 @@ let DFA = (function () {
 			dfa2Label: alpha2 !== null ? alphaToDfaLabel(alpha2, level) : null,
 			alpha1Range,
 			alpha2Range,
+			globalRange,
+			globalMaxFraction,
 		};
 	};
 
@@ -869,6 +901,7 @@ let DFA = (function () {
 		shortMax = 16,
 		longMin = 16,
 		longMaxFraction = 0.25,
+		globalMaxFraction = 0.25,
 		surrogateCount = 20,
 		seed = 42,
 		random = null,
@@ -884,6 +917,7 @@ let DFA = (function () {
 			shortMax,
 			longMin,
 			longMaxFraction,
+			globalMaxFraction,
 		};
 
 		// Build the q list (inclusive of qMax up to floating-point tolerance).
@@ -937,7 +971,7 @@ let DFA = (function () {
 		}
 
 		// Same integrated profile and scales as the monofractal path.
-		const { hq, hq1, hq2, scales, fluctuationsByQ, alpha1Range, alpha2Range } =
+		const { hq, hq1, hq2, scales, fluctuationsByQ, alpha1Range, alpha2Range, globalRange } =
 			hCurves(rr, qValues, scaleParams);
 
 		// tau(q) = q * h(q) - 1
@@ -1066,7 +1100,7 @@ let DFA = (function () {
 			surrogate, // shuffled-surrogate widths the verdicts were judged against
 			monofractal, // h(2) per range; matches compute() alpha/alpha1/alpha2
 			ranges: {
-				global: [scales[0], scales[scales.length - 1]],
+				global: globalRange,
 				alpha1: alpha1Range,
 				alpha2: alpha2Range,
 			},
