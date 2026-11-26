@@ -168,3 +168,15 @@ console.log(
 );
 
 if (!ok || !verdictsOk) process.exitCode = 1;
+
+// Global alpha cap (2.5.0): default fits up to N/4, globalMaxFraction = 1 up to N
+const capSeries = Array.from({ length: 512 }, (_, i) => Math.sin(i * 0.37) + ((i * 7919) % 101) / 101);
+const capDefault = new DFA(capSeries).compute();
+const capFull = new DFA(capSeries).compute(4, 0.25, 2, 16, 16, 0.25, "moderate", 1);
+console.log(
+	`global cap: default range ${JSON.stringify(capDefault.globalRange)} ${
+		capDefault.globalRange[1] <= 512 / 4 ? "PASS" : "FAIL"
+	}, full range ${JSON.stringify(capFull.globalRange)} ${capFull.globalRange[1] === 512 ? "PASS" : "FAIL"}, alpha1 equal ${
+		capDefault.alpha1 === capFull.alpha1 ? "PASS" : "FAIL"
+	}, alpha2 equal ${capDefault.alpha2 === capFull.alpha2 ? "PASS" : "FAIL"}`
+);

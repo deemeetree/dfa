@@ -35,7 +35,7 @@ let dfa = new DFA(time_series);
 let alpha_component = dfa.compute();
 
 // Or with custom parameters:
-// dfa.compute(minWindow, expStep, step, shortMax, longMin, longMaxFraction, level)
+// dfa.compute(minWindow, expStep, step, shortMax, longMin, longMaxFraction, level, globalMaxFraction)
 
 // where:
 // minWindow is the minimum window size for scales (default: 4)
@@ -45,6 +45,7 @@ let alpha_component = dfa.compute();
 // longMin is the minimum window size for long alpha2 (default: 16)
 // longMaxFraction is the maximum fraction of the series length for long alpha2 (default: 0.25)
 // level is the threshold sensitivity: "relaxed", "moderate", or "strict" (default: "moderate")
+// globalMaxFraction is the largest scale in the global alpha fit, as a fraction of the series length (default: 0.25; 1 = whole series, the behaviour before 2.5.0)
 
 console.log(alpha_component);
 ```
@@ -77,6 +78,8 @@ alpha_component = {
 	alpha2: alpha2, // Long-term scaling (scales 16–N/4), null if insufficient data
 	alpha1Range: [min, max], // Actual scale range used for α₁ (null when alpha1 is null)
 	alpha2Range: [min, max], // Actual scale range used for α₂ (null when alpha2 is null)
+	globalRange: [min, max], // Scale range used for the global α fit
+	globalMaxFraction: 0.25, // The cap that was applied
 	scalesAlpha1: [...], // Window sizes included in the α₁ fit
 	scalesAlpha2: [...], // Window sizes included in the α₂ fit
 
@@ -106,7 +109,7 @@ alpha_component = {
 
 The DFA algorithm produces three scaling exponents:
 
-- **Global α** (`alpha`) — fitted across all scales, from `minWindow` up to the full series length.
+- **Global α** (`alpha`) — fitted across all scales from `minWindow` up to `globalMaxFraction` of the series length (default **N/4**). Boxes close to the full length fit only once or twice into the series, so their fluctuation is averaged over one or two segments and is mostly chance; stopping at N/4 (or N/10 for a stricter fit) is the usual DFA practice. Pass `1` to fit up to the whole series as versions before 2.5.0 did. If the cap leaves fewer than 3 valid scales, the 3 smallest are used.
 - **α₁** (`alpha1`) — short-term correlations, fitted over scales 4–16 (controlled by `minWindow` and `shortMax`). Captures beat-to-beat dynamics in HRV or local patterns in other time series.
 - **α₂** (`alpha2`) — long-term correlations, fitted over scales 16–N/4 (controlled by `longMin` and `longMaxFraction`). Captures slower trends and regulatory patterns.
 
@@ -257,7 +260,7 @@ The `weak` (0.1) and `strong` (0.25) cutoffs are the rule-of-thumb values from t
 
 > **Note:** the verdict compares endpoint widths, not `multifractalWidth` (which is `max − min` over the whole curve). The two coincide when h(q) is monotonic, as it is for a genuinely multifractal signal. On noisy curves `max − min` can be inflated by a single interior point (typically q = 0 on series with an extreme dynamic range), which would bias the test towards "significant".
 
-**Typical parameter values:** q in the range **−5 to +5** (sometimes −10 to +10), with a step of 0.25, 0.5, or 1. `computeMultifractal()` accepts the same scale-generation parameters as `compute()` (`minWindow`, `step`, `expStep`, `shortMax`, `longMin`, `longMaxFraction`) and reuses the same scales and the same α₁/α₂ fit ranges, so the q = 2 curves match the monofractal `alpha`/`alpha1`/`alpha2` exactly. `compute()` itself is unchanged and remains the q = 2 special case.
+**Typical parameter values:** q in the range **−5 to +5** (sometimes −10 to +10), with a step of 0.25, 0.5, or 1. `computeMultifractal()` accepts the same scale-generation parameters as `compute()` (`minWindow`, `step`, `expStep`, `shortMax`, `longMin`, `longMaxFraction`, `globalMaxFraction`) and reuses the same scales and the same α₁/α₂ fit ranges, so the q = 2 curves match the monofractal `alpha`/`alpha1`/`alpha2` exactly. `compute()` itself is unchanged and remains the q = 2 special case.
 
 ### Understanding h(q), multifractalWidth, and the multifractal curves
 
